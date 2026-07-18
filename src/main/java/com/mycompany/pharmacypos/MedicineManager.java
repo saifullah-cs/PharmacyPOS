@@ -6,7 +6,6 @@ import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.sql.*;
 
 public class MedicineManager {
 
@@ -26,6 +25,9 @@ public class MedicineManager {
 
     // Buttons
     private static JButton btnAdd, btnDelete, btnClear;
+
+    // DAO - handles all database access for this screen
+    private static final MedicineDAO medicineDAO = new MedicineDAO();
 
     public static void open() {
         medicineFrame = new JFrame("Medicine Management");
@@ -160,27 +162,26 @@ public class MedicineManager {
         return btn;
     }
 
-    // ================= CRUD METHODS =================
+    // ================= CRUD METHODS (now delegate to MedicineDAO) =================
     private static void addMedicine() {
         try {
             if (txtMedicineName.getText().trim().isEmpty()) {
                 JOptionPane.showMessageDialog(medicineFrame, "Medicine Name is required!", "Validation", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            Connection con = DBConnection.getConnection();
-            String sql = "INSERT INTO medicines (medicine_name, company, purchase_price, sale_price, quantity, expiry_date, category, batch_no) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-            PreparedStatement ps = con.prepareStatement(sql);
-            ps.setString(1, txtMedicineName.getText().trim());
-            ps.setString(2, txtCompany.getText().trim());
-            ps.setDouble(3, Double.parseDouble(txtPurchasePrice.getText().trim()));
-            ps.setDouble(4, Double.parseDouble(txtSalePrice.getText().trim()));
-            ps.setInt(5, Integer.parseInt(txtQuantity.getText().trim()));
-            ps.setString(6, txtExpiry.getText().trim());
-            ps.setString(7, cmbCategory.getSelectedItem().toString());
-            ps.setString(8, txtBatchNo.getText().trim());
 
-            int rows = ps.executeUpdate();
-            if (rows > 0) {
+            boolean success = medicineDAO.addMedicine(
+                    txtMedicineName.getText().trim(),
+                    txtCompany.getText().trim(),
+                    Double.parseDouble(txtPurchasePrice.getText().trim()),
+                    Double.parseDouble(txtSalePrice.getText().trim()),
+                    Integer.parseInt(txtQuantity.getText().trim()),
+                    txtExpiry.getText().trim(),
+                    cmbCategory.getSelectedItem().toString(),
+                    txtBatchNo.getText().trim()
+            );
+
+            if (success) {
                 JOptionPane.showMessageDialog(medicineFrame, "Medicine Added Successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
                 loadMedicineTable(txtSearch.getText().trim());
                 clearFields();
@@ -203,17 +204,12 @@ public class MedicineManager {
         int confirm = JOptionPane.showConfirmDialog(medicineFrame, "Delete " + name + "?", "Confirm Delete", JOptionPane.YES_NO_OPTION);
         if (confirm != JOptionPane.YES_OPTION) return;
 
-        try {
-            Connection con = DBConnection.getConnection();
-            String sql = "DELETE FROM medicines WHERE id = ?";
-            PreparedStatement ps = con.prepareStatement(sql);
-            ps.setInt(1, id);
-            ps.executeUpdate();
-
+        boolean success = medicineDAO.deleteMedicine(id);
+        if (success) {
             JOptionPane.showMessageDialog(medicineFrame, "Medicine Deleted Successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
             loadMedicineTable(txtSearch.getText().trim());
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(medicineFrame, "Delete Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        } else {
+            JOptionPane.showMessageDialog(medicineFrame, "Delete Error!", "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -229,76 +225,33 @@ public class MedicineManager {
     }
 
     private static void loadMedicineTable(String searchText) {
-        try {
-            tableModel.setRowCount(0);
-            Connection con = DBConnection.getConnection();
-
-            String sql;
-            PreparedStatement ps;
-
-            if (searchText == null || searchText.trim().isEmpty()) {
-                sql = "SELECT * FROM medicines ORDER BY medicine_name ASC";
-                ps = con.prepareStatement(sql);
-            } else {
-                sql = "SELECT * FROM medicines WHERE medicine_name LIKE ? OR company LIKE ? OR category LIKE ? ORDER BY medicine_name ASC";
-                ps = con.prepareStatement(sql);
-                String pattern = "%" + searchText + "%";
-                ps.setString(1, pattern);
-                ps.setString(2, pattern);
-                ps.setString(3, pattern);
-            }
-
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                tableModel.addRow(new Object[]{
-                    rs.getInt("id"),
-                    rs.getString("medicine_name"),
-                    rs.getString("company"),
-                    rs.getDouble("purchase_price"),
-                    rs.getDouble("sale_price"),
-                    rs.getInt("quantity"),
-                    rs.getDate("expiry_date"),
-                    rs.getString("category"),
-                    rs.getString("batch_no")
-                });
-            }
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
+        medicineDAO.loadMedicineTable(tableModel, searchText);
     }
 
     // Auto Save on Cell Edit
     private static void saveEditedCell(int row, int col) {
-        try {
-            int id = (int) tableModel.getValueAt(row, 0);
-            Object newValue = tableModel.getValueAt(row, col);
-            String tableColumn = tableModel.getColumnName(col);
+        int id = (int) tableModel.getValueAt(row, 0);
+        Object newValue = tableModel.getValueAt(row, col);
+        String tableColumn = tableModel.getColumnName(col);
 
-            String dbColumn;
-            switch (tableColumn.toLowerCase()) {
-                case "name": dbColumn = "medicine_name"; break;
-                case "company": dbColumn = "company"; break;
-                case "purchase": dbColumn = "purchase_price"; break;
-                case "sale": dbColumn = "sale_price"; break;
-                case "qty": dbColumn = "quantity"; break;
-                case "expiry": dbColumn = "expiry_date"; break;
-                case "category": dbColumn = "category"; break;
-                case "batch": dbColumn = "batch_no"; break;
-                default: return;
-            }
+        String dbColumn;
+        switch (tableColumn.toLowerCase()) {
+            case "name": dbColumn = "medicine_name"; break;
+            case "company": dbColumn = "company"; break;
+            case "purchase": dbColumn = "purchase_price"; break;
+            case "sale": dbColumn = "sale_price"; break;
+            case "qty": dbColumn = "quantity"; break;
+            case "expiry": dbColumn = "expiry_date"; break;
+            case "category": dbColumn = "category"; break;
+            case "batch": dbColumn = "batch_no"; break;
+            default: return;
+        }
 
-            Connection con = DBConnection.getConnection();
-            String sql = "UPDATE medicines SET " + dbColumn + " = ? WHERE id = ?";
-            PreparedStatement ps = con.prepareStatement(sql);
-            ps.setObject(1, newValue);
-            ps.setInt(2, id);
-            ps.executeUpdate();
-            ps.close();
-
+        boolean success = medicineDAO.updateField(id, dbColumn, newValue);
+        if (success) {
             System.out.println("Saved: " + dbColumn + " = " + newValue);
-        } catch (Exception ex) {
-            ex.printStackTrace();
-            JOptionPane.showMessageDialog(medicineFrame, "Save Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        } else {
+            JOptionPane.showMessageDialog(medicineFrame, "Save Error!", "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 }

@@ -3,12 +3,10 @@ package com.mycompany.pharmacypos;
 import com.mycompany.pharmacypos.LoginFrame;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.List;
 
 public class SalesFrame {
     JFrame frame;
@@ -27,6 +25,9 @@ public class SalesFrame {
     JLabel stockLabel;
     JLabel priceLabel;
     JComboBox<String> medicineBox;
+
+    private final SalesDAO salesDAO = new SalesDAO();
+    private DocumentListener suggestionListener;
 
     public SalesFrame() {
         frame = new JFrame("Pharmacy POS - Sales");
@@ -49,14 +50,15 @@ public class SalesFrame {
         frame.add(medicineBox);
 
         JTextField editor = (JTextField) medicineBox.getEditor().getEditorComponent();
-        editor.getDocument().addDocumentListener(new DocumentListener() {
+        suggestionListener = new DocumentListener() {
             @Override
-            public void insertUpdate(DocumentEvent e) { showSuggestions(); }
+            public void insertUpdate(DocumentEvent e) { SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
             @Override
-            public void removeUpdate(DocumentEvent e) { showSuggestions(); }
+            public void removeUpdate(DocumentEvent e) { SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
             @Override
-            public void changedUpdate(DocumentEvent e) { showSuggestions(); }
-        });
+            public void changedUpdate(DocumentEvent e) { SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
+        };
+        editor.getDocument().addDocumentListener(suggestionListener);
 
         searchBtn = new JButton("Search");
         searchBtn.setBounds(390,80,100,30);
@@ -153,320 +155,210 @@ public class SalesFrame {
                 JOptionPane.showMessageDialog(null, "No invoice to print!");
             }
         });
-searchBtn.addActionListener(e -> {
 
-    try {
+        searchBtn.addActionListener(e -> {
+            SalesDAO.MedicineInfo info = salesDAO.findMedicineByName(editor.getText());
 
-        Connection con = DBConnection.getConnection();
+            if (info != null) {
+                medicineLabel.setText("Medicine : " + info.name);
+                stockLabel.setText("Stock : " + info.quantity);
+                priceLabel.setText("Price : Rs. " + info.salePrice);
+            } else {
+                JOptionPane.showMessageDialog(null, "Medicine Not Found!");
+            }
+        });
 
-        String sql =
-                "SELECT * FROM medicines WHERE medicine_name LIKE ?";
+        editor.addActionListener(e -> {
 
-        PreparedStatement pst =
-                con.prepareStatement(sql);
+            searchBtn.doClick();
 
-     pst.setString(1, "%" + editor.getText() + "%");
+            qtyField.requestFocus();
 
-        ResultSet rs = pst.executeQuery();
+        });
+        addBtn.addActionListener(e -> {
 
-        if (rs.next()) {
+            try {
 
-            medicineLabel.setText(
-                    "Medicine : " +
-                    rs.getString("medicine_name")
-            );
+                String medicine =
+                        medicineLabel.getText().replace("Medicine : ", "");
 
-            stockLabel.setText(
-                    "Stock : " +
-                    rs.getInt("quantity")
-            );
+                if (medicine.equals("-")) {
 
-            priceLabel.setText(
-                    "Price : Rs. " +
-                    rs.getDouble("sale_price")
-            );
+                    JOptionPane.showMessageDialog(
+                            null,
+                            "Search a medicine first!"
+                    );
 
-        } else {
+                    return;
 
-            JOptionPane.showMessageDialog(
-                    null,
-                    "Medicine Not Found!"
-            );
+                }
 
-        }
+                double price =
+                        Double.parseDouble(
+                                priceLabel.getText()
+                                        .replace("Price : Rs. ", "")
+                        );
 
-    } catch (Exception ex) {
+                int qty =
+                        Integer.parseInt(qtyField.getText());
+                int availableStock =
+                Integer.parseInt(
+                        stockLabel.getText()
+                                .replace("Stock : ", "")
+                );
 
-        ex.printStackTrace();
-
-    }
-
-});
-editor.addActionListener(e -> {
-
-    searchBtn.doClick();
-
-    qtyField.requestFocus();
-
-});
-addBtn.addActionListener(e -> {
-
-    try {
-
-        String medicine =
-                medicineLabel.getText().replace("Medicine : ", "");
-
-        if (medicine.equals("-")) {
+        if (qty <= 0) {
 
             JOptionPane.showMessageDialog(
                     null,
-                    "Search a medicine first!"
+                    "Quantity must be greater than 0!"
             );
 
             return;
-
         }
 
-        double price =
-                Double.parseDouble(
-                        priceLabel.getText()
-                                .replace("Price : Rs. ", "")
-                );
+        if (qty > availableStock) {
 
-        int qty =
-                Integer.parseInt(qtyField.getText());
-        int availableStock =
-        Integer.parseInt(
-                stockLabel.getText()
-                        .replace("Stock : ", "")
-        );
+            JOptionPane.showMessageDialog(
+                    null,
+                    "Only " + availableStock + " items available!"
+            );
 
-if (qty <= 0) {
+            return;
+        }
 
-    JOptionPane.showMessageDialog(
-            null,
-            "Quantity must be greater than 0!"
-    );
+                boolean found = false;
 
-    return;
-}
+                for (int i = 0; i < model.getRowCount(); i++) {
 
-if (qty > availableStock) {
+                    String med =
+                            model.getValueAt(i, 0).toString();
 
-    JOptionPane.showMessageDialog(
-            null,
-            "Only " + availableStock + " items available!"
-    );
+                    if (med.equalsIgnoreCase(medicine)) {
 
-    return;
-}
+                        int oldQty =
+                                Integer.parseInt(
+                                        model.getValueAt(i, 2).toString()
+                                );
 
-        boolean found = false;
+                        int newQty = oldQty + qty;
+                        if (newQty > availableStock) {
 
-        for (int i = 0; i < model.getRowCount(); i++) {
+            JOptionPane.showMessageDialog(
+                    null,
+                    "Only " + availableStock + " items available!"
+            );
 
-            String med =
-                    model.getValueAt(i, 0).toString();
+            return;
+        }
 
-            if (med.equalsIgnoreCase(medicine)) {
+                        model.setValueAt(newQty, i, 2);
 
-                int oldQty =
-                        Integer.parseInt(
-                                model.getValueAt(i, 2).toString()
-                        );
+                        model.setValueAt(price * newQty, i, 3);
 
-                int newQty = oldQty + qty;
-                if (newQty > availableStock) {
+                        found = true;
 
-    JOptionPane.showMessageDialog(
-            null,
-            "Only " + availableStock + " items available!"
-    );
+                        break;
 
-    return;
-}
+                    }
 
-                model.setValueAt(newQty, i, 2);
+                }
 
-                model.setValueAt(price * newQty, i, 3);
+                if (!found) {
 
-                found = true;
+                    model.addRow(new Object[]{
 
-                break;
+                            medicine,
+                            price,
+                            qty,
+                            price * qty
+
+                    });
+
+                }
+
+                updateGrandTotal();
+
+                qtyField.setText("");
+
+               qtyField.setText("");
+
+        medicineBox.setSelectedItem("");
+
+        medicineLabel.setText("Medicine : -");
+        stockLabel.setText("Stock : -");
+        priceLabel.setText("Price : -");
+
+        medicineBox.requestFocus();
 
             }
 
-        }
+            catch (Exception ex) {
 
-        if (!found) {
+                JOptionPane.showMessageDialog(
+                        null,
+                        "Invalid Quantity!"
+                );
 
-            model.addRow(new Object[]{
+            }
 
-                    medicine,
-                    price,
-                    qty,
-                    price * qty
+        });
+        qtyField.addActionListener(e -> {
 
-            });
+            addBtn.doClick();
 
-        }
-
-        updateGrandTotal();
-
-        qtyField.setText("");
-
-       qtyField.setText("");
-
-medicineBox.setSelectedItem("");
-
-medicineLabel.setText("Medicine : -");
-stockLabel.setText("Stock : -");
-priceLabel.setText("Price : -");
-
-medicineBox.requestFocus();
-
-    }
-
-    catch (Exception ex) {
-
-        JOptionPane.showMessageDialog(
-                null,
-                "Invalid Quantity!"
-        );
-
-    }
-
-});
-qtyField.addActionListener(e -> {
-
-    addBtn.doClick();
-
-});
+        });
 
         frame.setVisible(true);
     }
-private void showSuggestions() {
 
-    try {
+    private void showSuggestions() {
 
         JTextField editor =
                 (JTextField) medicineBox.getEditor().getEditorComponent();
 
         String text = editor.getText().trim();
 
-        medicineBox.removeAllItems();
+        // Detach the listener so nothing we do below can trigger this method again
+        editor.getDocument().removeDocumentListener(suggestionListener);
 
-        if (text.isEmpty()) {
-            medicineBox.hidePopup();
-            return;
+        try {
+            medicineBox.removeAllItems();
+
+            if (text.isEmpty()) {
+                medicineBox.hidePopup();
+                return;
+            }
+
+            List<String> suggestions = salesDAO.suggestMedicineNames(text);
+
+            for (String name : suggestions) {
+                medicineBox.addItem(name);
+            }
+
+            editor.setText(text);
+            editor.setCaretPosition(text.length());
+
+            medicineBox.showPopup();
+        } finally {
+            // Reattach so future typing keeps triggering suggestions
+            editor.getDocument().addDocumentListener(suggestionListener);
         }
+    }
 
-        Connection con = DBConnection.getConnection();
+    private void updateGrandTotal() {
 
-        PreparedStatement pst = con.prepareStatement(
-                "SELECT medicine_name FROM medicines WHERE medicine_name LIKE ? LIMIT 10"
-        );
+        double grandTotal = 0;
 
-        pst.setString(1, text + "%");
+        for (int i = 0; i < model.getRowCount(); i++) {
 
-        ResultSet rs = pst.executeQuery();
-
-        while (rs.next()) {
-
-            medicineBox.addItem(
-                    rs.getString("medicine_name")
+            grandTotal += Double.parseDouble(
+                    model.getValueAt(i, 3).toString()
             );
 
         }
 
-        editor.setText(text);
-
-        medicineBox.showPopup();
-
-    } catch (Exception ex) {
-
-        ex.printStackTrace();
+        totalLabel.setText("Grand Total : Rs. " + grandTotal);
 
     }
-
-}
-private void loadMedicine() {
-
-    try {
-
-        Connection con = DBConnection.getConnection();
-
-        String sql =
-                "SELECT * FROM medicines WHERE medicine_name=?";
-
-        PreparedStatement pst =
-                con.prepareStatement(sql);
-
-       JTextField editor =
-        (JTextField) medicineBox.getEditor().getEditorComponent();
-
-pst.setString(1, editor.getText());
-
-        ResultSet rs = pst.executeQuery();
-
-        if (rs.next()) {
-
-            medicineLabel.setText(
-                    "Medicine : " +
-                    rs.getString("medicine_name")
-            );
-
-            stockLabel.setText(
-                    "Stock : " +
-                    rs.getInt("quantity")
-            );
-
-            priceLabel.setText(
-                    "Price : Rs. " +
-                    rs.getDouble("sale_price")
-            );
-
-        }
-
-    } catch (Exception ex) {
-
-        ex.printStackTrace();
-
-    }
-
-}
-private void updateGrandTotal() {
-
-    double grandTotal = 0;
-
-    for (int i = 0; i < model.getRowCount(); i++) {
-
-        grandTotal += Double.parseDouble(
-                model.getValueAt(i, 3).toString()
-        );
-
-    }
-
-    totalLabel.setText("Grand Total : Rs. " + grandTotal);
-
-}
-private void printInvoice(String invoiceNo) {
-    try {
-        int choice = JOptionPane.showConfirmDialog(frame,
-                "Do you want to print Invoice No: " + invoiceNo + "?",
-                "Print Invoice",
-                JOptionPane.YES_NO_OPTION);
-
-        if (choice == JOptionPane.YES_OPTION) {
-            // Yahan tum apna printing logic daal sakte ho
-            JOptionPane.showMessageDialog(frame, 
-                "Invoice " + invoiceNo + " sent to printer.\n(Printing logic can be added later)", 
-                "Printing", JOptionPane.INFORMATION_MESSAGE);
-            
-            // Future mein yahan proper printing code aayega (JasperReport ya thermal printer)
-        }
-    } catch (Exception ex) {
-        ex.printStackTrace();
-    }
-}
 }
