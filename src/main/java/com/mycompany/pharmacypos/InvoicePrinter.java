@@ -2,13 +2,15 @@ package com.mycompany.pharmacypos;
 
 import javax.swing.*;
 import java.awt.*;
-import java.sql.*;
+import java.util.List;
 
 public class InvoicePrinter {
 
+    private static final SalesDAO salesDAO = new SalesDAO();
+
     public static void printInvoice(String invoiceNo) {
         JFrame printFrame = new JFrame("Invoice - " + invoiceNo);
-        printFrame.setSize(400, 600);
+        printFrame.setSize(450, 650);
         printFrame.setLocationRelativeTo(null);
 
         JTextArea invoiceArea = new JTextArea();
@@ -16,51 +18,73 @@ public class InvoicePrinter {
         invoiceArea.setEditable(false);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("========================================\n");
-        sb.append("          HEALTH HAVEN PHARMACY\n");
-        sb.append("========================================\n");
-        sb.append("Invoice No: ").append(invoiceNo).append("\n");
-        sb.append("Date: ").append(java.time.LocalDateTime.now()).append("\n");
-        sb.append("----------------------------------------\n");
+
+        // Header
+        sb.append("============================================\n");
+        sb.append("           HEALTH HAVEN PHARMACY\n");
+        sb.append("============================================\n");
+        sb.append("Address:Baharwal Chowk, Guliana Rd,\n");
+        sb.append("Opp. Almudassir Trust,Kharian, Pakistan\n");
+        sb.append("--------------------------------------------\n");
+        sb.append("Invoice No : ").append(invoiceNo).append("\n");
+        sb.append("Date       : ").append(java.time.LocalDateTime.now()).append("\n");
+        sb.append("--------------------------------------------\n\n");
 
         try {
-            Connection con = DBConnection.getConnection();
-            String sql = "SELECT * FROM sales WHERE invoice_no = ?";
-            PreparedStatement ps = con.prepareStatement(sql);
-            ps.setString(1, invoiceNo);
-            ResultSet rs = ps.executeQuery();
-
+            List<SalesDAO.SaleLineItem> items = salesDAO.getSalesByInvoice(invoiceNo);
             double grandTotal = 0;
 
-            while (rs.next()) {
-                sb.append(rs.getString("medicine_name")).append("\n");
-                sb.append("Qty: ").append(rs.getInt("quantity"));
-                sb.append("   Price: ").append(rs.getDouble("sale_price"));
-                sb.append("   Total: ").append(rs.getDouble("total_bill")).append("\n\n");
-                grandTotal += rs.getDouble("total_bill");
+            // Table Header
+            sb.append(String.format("%-18s %-5s %-8s %-8s%n",
+                    "Medicine", "Qty", "Price", "Total"));
+            sb.append("--------------------------------------------\n");
+
+            for (SalesDAO.SaleLineItem item : items) {
+                String medicine = item.medicineName;
+                if (medicine.length() > 18) {
+                    medicine = medicine.substring(0, 18);
+                }
+
+                sb.append(String.format(
+                        "%-18s %-5d %-8.2f %-8.2f%n",
+                        medicine,
+                        item.quantity,
+                        item.salePrice,
+                        item.totalBill));
+
+                grandTotal += item.totalBill;
             }
 
-            sb.append("----------------------------------------\n");
-            sb.append("Grand Total: Rs. ").append(grandTotal).append("\n");
-            sb.append("Thank You! Visit Again.\n");
-            sb.append("========================================\n");
-
+            sb.append("--------------------------------------------\n");
+            sb.append(String.format("       Grand Total : Rs. %.2f%n", grandTotal));
+            sb.append("============================================\n");
+            sb.append("      Thank You for Choosing Us!\n");
+            sb.append("============================================\n");
+            sb.append("For any issue or complaint:\n");
+            sb.append("Phone: 0370-4433405\n");
+            sb.append("============================================\n");
         } catch (Exception ex) {
             ex.printStackTrace();
+            JOptionPane.showMessageDialog(printFrame,
+                    "Error loading invoice.",
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
 
         invoiceArea.setText(sb.toString());
-
-        JScrollPane sp = new JScrollPane(invoiceArea);
-        printFrame.add(sp);
+        JScrollPane scrollPane = new JScrollPane(invoiceArea);
 
         JButton printBtn = new JButton("Print");
         printBtn.addActionListener(e -> {
-            JOptionPane.showMessageDialog(printFrame, "Printing Invoice " + invoiceNo + "...");
-            // Real printing logic later
+            JOptionPane.showMessageDialog(
+                    printFrame,
+                    "Printing Invoice " + invoiceNo + "...");
+            // Real printer logic will be added later.
         });
-        printFrame.add(printBtn, BorderLayout.SOUTH);
 
+        printFrame.setLayout(new BorderLayout());
+        printFrame.add(scrollPane, BorderLayout.CENTER);
+        printFrame.add(printBtn, BorderLayout.SOUTH);
         printFrame.setVisible(true);
     }
 }

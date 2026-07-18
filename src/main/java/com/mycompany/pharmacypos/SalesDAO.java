@@ -13,6 +13,49 @@ import java.util.List;
  */
 public class SalesDAO {
 
+    /** One line item on a printed invoice. */
+    public static class SaleLineItem {
+        public final String medicineName;
+        public final int quantity;
+        public final double salePrice;
+        public final double totalBill;
+
+        public SaleLineItem(String medicineName, int quantity, double salePrice, double totalBill) {
+            this.medicineName = medicineName;
+            this.quantity = quantity;
+            this.salePrice = salePrice;
+            this.totalBill = totalBill;
+        }
+    }
+
+    /** Same query InvoicePrinter used: every line item belonging to one invoice number. */
+    public List<SaleLineItem> getSalesByInvoice(String invoiceNo) {
+        List<SaleLineItem> items = new ArrayList<>();
+        try {
+            Connection con = DBConnection.getConnection();
+            String sql = "SELECT * FROM sales WHERE invoice_no = ?";
+            PreparedStatement ps = con.prepareStatement(sql);
+            ps.setString(1, invoiceNo);
+            ResultSet rs = ps.executeQuery();
+
+            while (rs.next()) {
+                items.add(new SaleLineItem(
+                        rs.getString("medicine_name"),
+                        rs.getInt("quantity"),
+                        rs.getDouble("sale_price"),
+                        rs.getDouble("total_bill")
+                ));
+            }
+
+            rs.close();
+            ps.close();
+            con.close();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return items;
+    }
+
     /** Simple holder for the fields SalesFrame needs when a medicine is looked up. */
     public static class MedicineInfo {
         public final String name;
@@ -138,6 +181,38 @@ public class SalesDAO {
     }
 
     /** Same query InvoiceGenerator used: last invoice number saved, or null if no sales yet. */
+    /** Same query as HomeFrame's Sales History screen used: all sales, newest first.
+     *  Returns the running total (sum of total_bill), matching the original logic.
+     *  Throws on failure so the caller can show the same error dialog as before. */
+    public double loadSalesHistory(javax.swing.table.DefaultTableModel model) throws Exception {
+        double totalSales = 0;
+
+        Connection con = DBConnection.getConnection();
+        String sql = "SELECT * FROM sales ORDER BY sale_date DESC";
+        PreparedStatement pst = con.prepareStatement(sql);
+        ResultSet rs = pst.executeQuery();
+
+        while (rs.next()) {
+            model.addRow(new Object[]{
+                rs.getInt("id"),
+                rs.getString("medicine_name"),
+                rs.getInt("quantity"),
+                rs.getDouble("sale_price"),
+                rs.getDouble("total_bill"),
+                rs.getString("invoice_no"),
+                rs.getDate("expiry_date"),
+                rs.getTimestamp("sale_date")
+            });
+            totalSales += rs.getDouble("total_bill");
+        }
+
+        rs.close();
+        pst.close();
+        con.close();
+
+        return totalSales;
+    }
+
     public String getLastInvoiceNo() {
         try {
             Connection con = DBConnection.getConnection();

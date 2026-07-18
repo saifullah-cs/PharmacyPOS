@@ -143,7 +143,8 @@ public class SalesFrame {
             medicineLabel.setText("Medicine : -");
             stockLabel.setText("Stock : -");
             priceLabel.setText("Price : -");
-                        // Safe Dashboard Refresh
+
+            HomeFrame.refreshDashboardStatic();
 
             printBtn.setEnabled(true);
         });

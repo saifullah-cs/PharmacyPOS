@@ -12,7 +12,7 @@ public class MedicineManager {
     private static JFrame medicineFrame;
     private static JPanel mainPanel;
 
-    // Form Fields
+    // Form Fields (admin only)
     private static JTextField txtMedicineName, txtCompany, txtPurchasePrice, txtSalePrice;
     private static JTextField txtQuantity, txtExpiry, txtBatchNo;
     private static JTextField txtSearch;
@@ -23,14 +23,20 @@ public class MedicineManager {
     private static DefaultTableModel tableModel;
     private static TableRowSorter<DefaultTableModel> sorter;
 
-    // Buttons
+    // Buttons (admin only)
     private static JButton btnAdd, btnDelete, btnClear;
 
     // DAO - handles all database access for this screen
     private static final MedicineDAO medicineDAO = new MedicineDAO();
 
-    public static void open() {
-        medicineFrame = new JFrame("Medicine Management");
+    // Role-based access: admin gets the full management form,
+    // cashier gets a read-only inventory view only.
+    private static boolean isAdminUser = false;
+
+    public static void open(String role) {
+        isAdminUser = "admin".equalsIgnoreCase(role);
+
+        medicineFrame = new JFrame(isAdminUser ? "Medicine Management" : "Medicine Inventory");
         medicineFrame.setSize(1150, 700);
         medicineFrame.setLocationRelativeTo(null);
         medicineFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -48,12 +54,12 @@ public class MedicineManager {
 
     private static void createUI() {
         // Title
-        JLabel title = new JLabel("Medicine Management");
+        JLabel title = new JLabel(isAdminUser ? "Medicine Management" : "Medicine Inventory");
         title.setFont(new Font("Segoe UI", Font.BOLD, 24));
         title.setBounds(30, 20, 400, 40);
         mainPanel.add(title);
 
-        // Search
+        // Search - available to everyone
         JLabel searchLbl = new JLabel("Search Medicine:");
         searchLbl.setBounds(680, 25, 120, 25);
         mainPanel.add(searchLbl);
@@ -70,7 +76,15 @@ public class MedicineManager {
             }
         });
 
-        // Left Form
+        if (isAdminUser) {
+            createAdminForm();
+        }
+
+        createTable();
+    }
+
+    // ================= ADMIN-ONLY FORM (Add / Delete / Clear) =================
+    private static void createAdminForm() {
         int x = 30, y = 80, gap = 45;
 
         addLabel("Medicine Name:", x, y);
@@ -100,7 +114,6 @@ public class MedicineManager {
         cmbCategory.setBounds(x + 130, y, 200, 28);
         mainPanel.add(cmbCategory);
 
-        // Buttons
         y += 55;
         btnAdd = createButton("Add", x, y, new Color(0, 153, 76));
         btnDelete = createButton("Delete", x + 110, y, new Color(204, 51, 51));
@@ -109,13 +122,16 @@ public class MedicineManager {
         btnAdd.addActionListener(e -> addMedicine());
         btnDelete.addActionListener(e -> deleteMedicine());
         btnClear.addActionListener(e -> clearFields());
+    }
 
-        // Table with Inline Editing
+    // ================= TABLE (shown to everyone, editable admin-only) =================
+    private static void createTable() {
         String[] columns = {"ID", "Name", "Company", "Purchase", "Sale", "Qty", "Expiry", "Category", "Batch"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column != 0; // ID not editable
+                if (!isAdminUser) return false; // Cashier: read-only inventory view
+                return column != 0;              // Admin: everything editable except ID
             }
         };
 
@@ -123,7 +139,13 @@ public class MedicineManager {
         sorter = new TableRowSorter<>(tableModel);
         medicineTable.setRowSorter(sorter);
 
-        // Auto Save on Cell Edit
+        if (!isAdminUser) {
+            // Hide the Purchase (cost) column from cashiers - same reasoning as
+            // hiding the Purchase Price field/edit access for non-admins elsewhere.
+            medicineTable.getColumnModel().removeColumn(medicineTable.getColumnModel().getColumn(3));
+        }
+
+        // Auto Save on Cell Edit (admin only - table is non-editable for cashier anyway)
         tableModel.addTableModelListener(e -> {
             if (e.getType() == javax.swing.event.TableModelEvent.UPDATE) {
                 int row = e.getFirstRow();
@@ -135,14 +157,21 @@ public class MedicineManager {
         });
 
         JScrollPane scrollPane = new JScrollPane(medicineTable);
-        scrollPane.setBounds(420, 70, 700, 520);
+        if (isAdminUser) {
+            // Table sits to the right of the management form
+            scrollPane.setBounds(420, 70, 700, 520);
+        } else {
+            // No form to share space with - table takes the centered, full view
+            scrollPane.setBounds(30, 90, 1080, 560);
+        }
         mainPanel.add(scrollPane);
     }
 
-    private static void addLabel(String text, int x, int y) {
+    private static JLabel addLabel(String text, int x, int y) {
         JLabel lbl = new JLabel(text);
         lbl.setBounds(x, y, 120, 28);
         mainPanel.add(lbl);
+        return lbl;
     }
 
     private static JTextField createTextField(int x, int y) {
@@ -162,7 +191,7 @@ public class MedicineManager {
         return btn;
     }
 
-    // ================= CRUD METHODS (now delegate to MedicineDAO) =================
+    // ================= CRUD METHODS (admin only - delegate to MedicineDAO) =================
     private static void addMedicine() {
         try {
             if (txtMedicineName.getText().trim().isEmpty()) {
@@ -185,6 +214,7 @@ public class MedicineManager {
                 JOptionPane.showMessageDialog(medicineFrame, "Medicine Added Successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
                 loadMedicineTable(txtSearch.getText().trim());
                 clearFields();
+                HomeFrame.refreshDashboardStatic();
             }
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(medicineFrame, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
@@ -192,6 +222,11 @@ public class MedicineManager {
     }
 
     private static void deleteMedicine() {
+        if (!isAdminUser) {
+            JOptionPane.showMessageDialog(medicineFrame, "Only Admin can delete medicines!", "Access Denied", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         int selectedRow = medicineTable.getSelectedRow();
         if (selectedRow == -1) {
             JOptionPane.showMessageDialog(medicineFrame, "Please select a medicine to delete!", "No Selection", JOptionPane.WARNING_MESSAGE);
@@ -208,6 +243,7 @@ public class MedicineManager {
         if (success) {
             JOptionPane.showMessageDialog(medicineFrame, "Medicine Deleted Successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
             loadMedicineTable(txtSearch.getText().trim());
+            HomeFrame.refreshDashboardStatic();
         } else {
             JOptionPane.showMessageDialog(medicineFrame, "Delete Error!", "Error", JOptionPane.ERROR_MESSAGE);
         }
@@ -250,6 +286,7 @@ public class MedicineManager {
         boolean success = medicineDAO.updateField(id, dbColumn, newValue);
         if (success) {
             System.out.println("Saved: " + dbColumn + " = " + newValue);
+            HomeFrame.refreshDashboardStatic();
         } else {
             JOptionPane.showMessageDialog(medicineFrame, "Save Error!", "Error", JOptionPane.ERROR_MESSAGE);
         }
