@@ -14,7 +14,7 @@ public class MedicineManager {
 
     // Form Fields (admin only)
     private static JTextField txtMedicineName, txtCompany, txtPurchasePrice, txtSalePrice;
-    private static JTextField txtQuantity, txtExpiry, txtBatchNo;
+    private static JTextField txtQuantity, txtExpiry, txtBatchNo, txtDistributor;
     private static JTextField txtSearch;
     private static JComboBox<String> cmbCategory;
 
@@ -108,6 +108,9 @@ public class MedicineManager {
         addLabel("Batch No:", x, y);
         txtBatchNo = createTextField(x + 130, y); y += gap;
 
+        addLabel("Distributor:", x, y);
+        txtDistributor = createTextField(x + 130, y); y += gap;
+
         addLabel("Category:", x, y);
         String[] categories = {"Tablet", "Capsule", "Syrup", "Injection", "Cream", "Drops", "Other"};
         cmbCategory = new JComboBox<>(categories);
@@ -126,7 +129,7 @@ public class MedicineManager {
 
     // ================= TABLE (shown to everyone, editable admin-only) =================
     private static void createTable() {
-        String[] columns = {"ID", "Name", "Company", "Purchase", "Sale", "Qty", "Expiry", "Category", "Batch"};
+        String[] columns = {"ID", "Name", "Company", "Purchase", "Sale", "Qty", "Expiry", "Category", "Batch", "Distributor"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -207,7 +210,8 @@ public class MedicineManager {
                     Integer.parseInt(txtQuantity.getText().trim()),
                     txtExpiry.getText().trim(),
                     cmbCategory.getSelectedItem().toString(),
-                    txtBatchNo.getText().trim()
+                    txtBatchNo.getText().trim(),
+                    txtDistributor.getText().trim()
             );
 
             if (success) {
@@ -257,6 +261,7 @@ public class MedicineManager {
         txtQuantity.setText("");
         txtExpiry.setText("");
         txtBatchNo.setText("");
+        txtDistributor.setText("");
         cmbCategory.setSelectedIndex(0);
     }
 
@@ -280,6 +285,7 @@ public class MedicineManager {
             case "expiry": dbColumn = "expiry_date"; break;
             case "category": dbColumn = "category"; break;
             case "batch": dbColumn = "batch_no"; break;
+            case "distributor": dbColumn = "distributor"; break;
             default: return;
         }
 

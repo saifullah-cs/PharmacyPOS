@@ -9,9 +9,8 @@ import javax.swing.table.DefaultTableModel;
  */
 public class LowStockFrame {
 
-    private static final int LOW_STOCK_THRESHOLD = 100;
-
     private final MedicineDAO medicineDAO = new MedicineDAO();
+    private final AppSettingsDAO appSettingsDAO = new AppSettingsDAO();
 
     public void show() {
         JFrame lowFrame = new JFrame("Low Stock Medicines");
@@ -26,11 +25,13 @@ public class LowStockFrame {
         sp.setBounds(20, 20, 840, 450);
         lowFrame.add(sp);
 
+        int threshold = appSettingsDAO.getLowStockThreshold();
+
         try {
-            int count = medicineDAO.loadLowStock(model, LOW_STOCK_THRESHOLD);
+            int count = medicineDAO.loadLowStock(model, threshold);
 
             if (count == 0) {
-                JOptionPane.showMessageDialog(lowFrame, "No medicines with quantity less than 100!");
+                JOptionPane.showMessageDialog(lowFrame, "No medicines with quantity less than " + threshold + "!");
             }
         } catch (Exception ex) {
             ex.printStackTrace();

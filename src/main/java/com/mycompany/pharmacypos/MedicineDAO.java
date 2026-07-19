@@ -13,10 +13,10 @@ public class MedicineDAO {
 
     public boolean addMedicine(String name, String company, double purchasePrice,
                                 double salePrice, int quantity, String expiryDate,
-                                String category, String batchNo) {
+                                String category, String batchNo, String distributor) {
         try {
             Connection con = DBConnection.getConnection();
-            String sql = "INSERT INTO medicines (medicine_name, company, purchase_price, sale_price, quantity, expiry_date, category, batch_no) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            String sql = "INSERT INTO medicines (medicine_name, company, purchase_price, sale_price, quantity, expiry_date, category, batch_no, distributor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
             PreparedStatement ps = con.prepareStatement(sql);
             ps.setString(1, name);
             ps.setString(2, company);
@@ -26,6 +26,7 @@ public class MedicineDAO {
             ps.setString(6, expiryDate);
             ps.setString(7, category);
             ps.setString(8, batchNo);
+            ps.setString(9, distributor);
 
             int rows = ps.executeUpdate();
             ps.close();
@@ -88,7 +89,8 @@ public class MedicineDAO {
                     rs.getInt("quantity"),
                     rs.getDate("expiry_date"),
                     rs.getString("category"),
-                    rs.getString("batch_no")
+                    rs.getString("batch_no"),
+                    rs.getString("distributor")
                 });
             }
             ps.close();

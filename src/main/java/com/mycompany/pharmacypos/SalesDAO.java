@@ -140,11 +140,11 @@ public class SalesDAO {
     }
 
     public boolean insertSaleRecord(String invoiceNo, String medicine, int qty,
-                                     double price, double total, String expiryDate, String cashier) {
+                                     double price, double total, String expiryDate, String cashier, double drFee) {
         try {
             Connection con = DBConnection.getConnection();
-            String sql = "INSERT INTO sales (invoice_no, medicine_name, quantity, sale_price, total_bill, expiry_date, cashier) " +
-                         "VALUES (?, ?, ?, ?, ?, ?, ?)";
+            String sql = "INSERT INTO sales (invoice_no, medicine_name, quantity, sale_price, total_bill, expiry_date, cashier, dr_fee) " +
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             PreparedStatement ps = con.prepareStatement(sql);
             ps.setString(1, invoiceNo);
             ps.setString(2, medicine);
@@ -153,6 +153,7 @@ public class SalesDAO {
             ps.setDouble(5, total);
             ps.setString(6, expiryDate);
             ps.setString(7, cashier);
+            ps.setDouble(8, drFee);
             ps.executeUpdate();
             ps.close();
             con.close();
@@ -185,11 +186,33 @@ public class SalesDAO {
      *  Returns the running total (sum of total_bill), matching the original logic.
      *  Throws on failure so the caller can show the same error dialog as before. */
     public double loadSalesHistory(javax.swing.table.DefaultTableModel model) throws Exception {
+        return loadSalesHistory(model, null);
+    }
+
+    /** Same as above, but filtered to sales whose medicine name, invoice number,
+     *  or sale date contains the given search text. Null/empty text loads everything. */
+    public double loadSalesHistory(javax.swing.table.DefaultTableModel model, String searchText) throws Exception {
         double totalSales = 0;
 
         Connection con = DBConnection.getConnection();
-        String sql = "SELECT * FROM sales ORDER BY sale_date DESC";
-        PreparedStatement pst = con.prepareStatement(sql);
+        String sql;
+        PreparedStatement pst;
+
+        if (searchText == null || searchText.trim().isEmpty()) {
+            sql = "SELECT * FROM sales ORDER BY sale_date DESC";
+            pst = con.prepareStatement(sql);
+        } else {
+            sql = "SELECT * FROM sales WHERE medicine_name LIKE ? " +
+                  "OR invoice_no LIKE ? " +
+                  "OR CAST(sale_date AS CHAR) LIKE ? " +
+                  "ORDER BY sale_date DESC";
+            pst = con.prepareStatement(sql);
+            String pattern = "%" + searchText.trim() + "%";
+            pst.setString(1, pattern);
+            pst.setString(2, pattern);
+            pst.setString(3, pattern);
+        }
+
         ResultSet rs = pst.executeQuery();
 
         while (rs.next()) {
@@ -201,7 +224,8 @@ public class SalesDAO {
                 rs.getDouble("total_bill"),
                 rs.getString("invoice_no"),
                 rs.getDate("expiry_date"),
-                rs.getTimestamp("sale_date")
+                rs.getTimestamp("sale_date"),
+                rs.getDouble("dr_fee")
             });
             totalSales += rs.getDouble("total_bill");
         }
@@ -211,6 +235,30 @@ public class SalesDAO {
         con.close();
 
         return totalSales;
+    }
+
+    /** The Dr Fee stored for a given invoice (it's saved once, on the first row of that invoice). */
+    public double getDoctorFeeForInvoice(String invoiceNo) {
+        try {
+            Connection con = DBConnection.getConnection();
+            String sql = "SELECT MAX(dr_fee) AS fee FROM sales WHERE invoice_no = ?";
+            PreparedStatement ps = con.prepareStatement(sql);
+            ps.setString(1, invoiceNo);
+            ResultSet rs = ps.executeQuery();
+
+            double fee = 0;
+            if (rs.next()) {
+                fee = rs.getDouble("fee");
+            }
+
+            rs.close();
+            ps.close();
+            con.close();
+            return fee;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            return 0;
+        }
     }
 
     public String getLastInvoiceNo() {

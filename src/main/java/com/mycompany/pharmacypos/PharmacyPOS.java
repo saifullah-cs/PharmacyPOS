@@ -10,9 +10,7 @@ public class PharmacyPOS {
 
     public static void main(String[] args) {
 
-    LoginFrame.loggedInUser = "Developer";
-
-    new HomeFrame("admin");
+   new LoginFrame();
     
 
 }
