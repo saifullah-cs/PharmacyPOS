@@ -51,6 +51,7 @@ public class SalesFrame {
         frame.setSize(1000, 750);
         frame.setLayout(null);
         frame.setLocationRelativeTo(null);
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
 
         JLabel title = new JLabel("Sales / Billing");
         title.setFont(new Font("Arial",Font.BOLD,22));
@@ -276,11 +277,11 @@ public class SalesFrame {
         });
 
         completeSaleBtn = new JButton("Complete Sale");
-        completeSaleBtn.setBounds(420,585,180,40);
+        completeSaleBtn.setBounds(420,605,180,40);
         frame.add(completeSaleBtn);
 
         printBtn = new JButton("Print Invoice");
-        printBtn.setBounds(630,585,180,40);
+        printBtn.setBounds(630,605,180,40);
         printBtn.setEnabled(false);
         frame.add(printBtn);
 
@@ -469,6 +470,8 @@ public class SalesFrame {
         });
 
         updateGrandTotal();
+
+        ResponsiveUtil.makeResponsive(frame, sp, 50, 220, totalLabel, completeSaleBtn, printBtn);
 
         frame.setVisible(true);
     }

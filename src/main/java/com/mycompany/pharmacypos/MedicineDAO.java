@@ -121,6 +121,8 @@ public class MedicineDAO {
                 rs.getInt("id"),
                 rs.getString("medicine_name"),
                 rs.getString("company"),
+                rs.getString("distributor"),
+                rs.getString("batch_no"),
                 rs.getInt("quantity"),
                 rs.getDate("expiry_date")
             });

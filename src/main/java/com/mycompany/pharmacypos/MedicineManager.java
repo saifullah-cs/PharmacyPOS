@@ -40,6 +40,7 @@ public class MedicineManager {
         medicineFrame.setSize(1150, 700);
         medicineFrame.setLocationRelativeTo(null);
         medicineFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        medicineFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
 
         mainPanel = new JPanel();
         mainPanel.setLayout(null);
@@ -168,6 +169,7 @@ public class MedicineManager {
             scrollPane.setBounds(30, 90, 1080, 560);
         }
         mainPanel.add(scrollPane);
+        ResponsiveUtil.makeResponsive(medicineFrame, scrollPane, 30, 30);
     }
 
     private static JLabel addLabel(String text, int x, int y) {

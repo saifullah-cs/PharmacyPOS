@@ -11,15 +11,16 @@ public class ExpiryAlert {
 
     public void showExpiry() {
         JFrame frame = new JFrame("Expiry Alert");
-        frame.setSize(950, 600);
+        frame.setSize(1150, 600);
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
 
-        String[] columns = {"ID", "Medicine", "Company", "Quantity", "Expiry Date", "Status"};
+        String[] columns = {"Medicine", "Company", "Distributor Name", "Batch Number", "Quantity", "Expiry Date", "Status"};
         DefaultTableModel model = new DefaultTableModel(columns, 0);
         JTable table = new JTable(model);
         JScrollPane sp = new JScrollPane(table);
-        sp.setBounds(20, 20, 900, 500);
+        sp.setBounds(20, 20, 1100, 500);
         frame.add(sp);
 
         try {
@@ -45,9 +46,10 @@ public class ExpiryAlert {
                 }
 
                 model.addRow(new Object[]{
-                    rs.getInt("id"),
                     rs.getString("medicine_name"),
                     rs.getString("company"),
+                    rs.getString("distributor"),
+                    rs.getString("batch_no"),
                     rs.getInt("quantity"),
                     expirySql,
                     status
@@ -59,7 +61,7 @@ public class ExpiryAlert {
                 @Override
                 public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                     Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                    String status = table.getValueAt(row, 5).toString();
+                    String status = table.getValueAt(row, 6).toString();
 
                     if (status.contains("EXPIRED")) {
                         c.setBackground(Color.RED);

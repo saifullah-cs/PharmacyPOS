@@ -14,15 +14,16 @@ public class LowStockFrame {
 
     public void show() {
         JFrame lowFrame = new JFrame("Low Stock Medicines");
-        lowFrame.setSize(900, 550);
+        lowFrame.setSize(1100, 550);
         lowFrame.setLocationRelativeTo(null);
         lowFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        lowFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
 
-        String[] columns = { "ID", "Medicine", "Company", "Quantity", "Expiry Date" };
+        String[] columns = { "ID", "Medicine", "Company", "Distributor Name", "Batch Number", "Quantity", "Expiry Date" };
         DefaultTableModel model = new DefaultTableModel(columns, 0);
         JTable table = new JTable(model);
         JScrollPane sp = new JScrollPane(table);
-        sp.setBounds(20, 20, 840, 450);
+        sp.setBounds(20, 20, 1040, 450);
         lowFrame.add(sp);
 
         int threshold = appSettingsDAO.getLowStockThreshold();
