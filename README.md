@@ -1,8 +1,7 @@
 # Pharmacy POS - Point of Sale Retail System
 
 A desktop-based Point of Sale (POS) application built for pharmacy retail management. 
-Handles inventory, billing, invoicing, distributor management, and sales reporting — 
-designed to be a real, deployable system for small pharmacy stores.
+Handles inventory, billing, invoicing, distributor management, and sales reporting.
 
 ## Features
 
@@ -17,7 +16,7 @@ designed to be a real, deployable system for small pharmacy stores.
 
 ## Tech Stack
 
-- **Language:** Java 26
+- **Language:** Java
 - **Database:** MySQL
 - **Database Access:** JDBC
 - **IDE:** NetBeans
@@ -25,9 +24,7 @@ designed to be a real, deployable system for small pharmacy stores.
 
 ## Prerequisites
 
-Before running this application, make sure you have:
-
-- Java 26 (or compatible JDK) installed
+- Java (JDK) installed
 - MySQL Server installed and running
 - A MySQL client (MySQL Workbench, or command line) to set up the database
 
@@ -42,19 +39,17 @@ cd PharmacyPOS
 ### 2. Set up the database
 - Open MySQL Workbench (or your preferred MySQL client)
 - Create a new database (e.g., `pharmacy_pos`)
-- Run the SQL files located in the `DataBase/Pharmacy_POS.SQL/` folder to create the required tables:
-  - `pharmacy_pos_medicines.sql`
-  - `pharmacy_pos_sales.sql`
-  - `pharmacy_pos_users.sql`
-  - `pharmacy_pos_distributors.sql`
-  - `pharmacy_pos_app_settings.sql`
-  - `pharmacy_pos_stock_adjustments.sql`
-  - `pharmacy_pos_tests.sql`
-  - `pharmacy_pos_sale_tests.sql`
+- Run the SQL files located in the `DataBase/Pharmacy_POS.SQL/` folder to create the required tables
 
 ### 3. Configure the database connection
-- Locate the database configuration in `DBConnection.java`
-- Update the connection URL, username, and password to match your local MySQL setup
+- Copy `config.properties.example` and rename the copy to `config.properties`
+- Open `config.properties` and fill in your actual database details:
+```properties
+db.url=jdbc:mysql://localhost:3306/pharmacy_pos
+db.user=root
+db.password=your_password_here
+```
+- This file is git-ignored, so your credentials stay local and are never pushed to GitHub
 
 ### 4. Run the application
 Download the latest `.jar` file from the [Releases](../../releases) page, then run:
