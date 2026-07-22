@@ -44,9 +44,9 @@ public class DBConnection {
     // For real deployment, set these via environment variables (DB_URL, DB_USER,
     // DB_PASSWORD) or a config.properties file next to the jar instead of
     // editing this file - see loadConfig() below.
-    private static final String DEFAULT_URL = "jdbc:mysql://localhost:3306/pharmacy_pos";
-    private static final String DEFAULT_USER = "root";
-    private static final String DEFAULT_PASSWORD = "pharmacy2026@";
+   private static final String DEFAULT_URL = "jdbc:mysql://localhost:3306/pharmacy_pos";
+private static final String DEFAULT_USER = "root";
+private static final String DEFAULT_PASSWORD = ""; // set via config.properties or DB_PASSWORD env var
 
     // How many physical connections the pool keeps ready. Sized for a small
     // pharmacy setup (one or a few billing terminals) - raise it if this ever

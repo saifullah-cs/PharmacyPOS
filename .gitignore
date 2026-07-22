@@ -19,3 +19,4 @@ Thumbs.db
 
 # Java compiled files
 *.class
+config.properties
