@@ -3,6 +3,7 @@ package com.mycompany.pharmacypos;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.table.DefaultTableModel;
@@ -136,13 +137,36 @@ public class TestDAO {
     // ================= Tests attached to a sale (Sales screen / receipt) =================
 
     public boolean insertSaleTest(String invoiceNo, String testName, double price) {
-        try {
-            Connection con = DBConnection.getConnection();
-            String sql = "INSERT INTO sale_tests (invoice_no, test_name, price) VALUES (?, ?, ?)";
-            PreparedStatement ps = con.prepareStatement(sql);
+        try (Connection con = DBConnection.getConnection()) {
+            return insertSaleTest(con, invoiceNo, testName, price);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    /** Same as insertSaleTest(String, String, double) above, but runs on a connection
+     *  the caller already has open, so it commits or rolls back together with the rest
+     *  of the sale (see InvoiceService.saveSale()) instead of as a separate write. */
+    public boolean insertSaleTest(Connection con, String invoiceNo, String testName, double price) throws SQLException {
+        String sql = "INSERT INTO sale_tests (invoice_no, test_name, price) VALUES (?, ?, ?)";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
             ps.setString(1, invoiceNo);
             ps.setString(2, testName);
             ps.setDouble(3, price);
+            ps.executeUpdate();
+            return true;
+        }
+    }
+
+    /** Deletes every sale-test row for one invoice - used alongside
+     *  SalesDAO.deleteSalesByInvoice() to fully undo a sale that failed partway through. */
+    public boolean deleteTestsByInvoice(String invoiceNo) {
+        try {
+            Connection con = DBConnection.getConnection();
+            String sql = "DELETE FROM sale_tests WHERE invoice_no = ?";
+            PreparedStatement ps = con.prepareStatement(sql);
+            ps.setString(1, invoiceNo);
             ps.executeUpdate();
             ps.close();
             con.close();

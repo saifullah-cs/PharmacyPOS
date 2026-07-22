@@ -2,6 +2,8 @@ package com.mycompany.pharmacypos;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
+import javax.swing.RowFilter;
 import java.awt.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -25,6 +27,14 @@ public class ReportsFrame {
 
     private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE;
 
+    /** Name of the report that gets the extra Search box (Medicine / Company /
+     *  Distributor / Batch No), matching the name it's registered under below. */
+    private static final String NEWLY_ADDED_STOCK_REPORT = "Newly Added Stock Report";
+
+    /** Columns eligible for the search box on that report - see the column
+     *  array passed to its ReportDefinition in buildReportCatalog(). */
+    private static final int[] STOCK_SEARCH_COLUMNS = {0, 1, 2, 3}; // Medicine, Company, Distributor, Batch No
+
     private final ReportsDAO reportsDAO = new ReportsDAO();
 
     private JFrame frame;
@@ -32,6 +42,10 @@ public class ReportsFrame {
     private JLabel statusLabel;
     private JPanel summaryPanel;
     private DefaultTableModel tableModel;
+    private JTable resultsTable;
+    private TableRowSorter<DefaultTableModel> tableSorter;
+    private JPanel searchPanel;
+    private JTextField searchField;
     private JComboBox<String> dateFilterBox;
     private JPanel customRangePanel;
     private JTextField customStartField;
@@ -43,6 +57,7 @@ public class ReportsFrame {
     private JButton currentActiveButton;
 
     private final Map<String, List<ReportDefinition>> catalog = new LinkedHashMap<>();
+
 
     public void show() {
         buildReportCatalog();
@@ -57,6 +72,9 @@ public class ReportsFrame {
         frame.add(buildReportListPanel(), BorderLayout.WEST);
         frame.add(buildMainPanel(), BorderLayout.CENTER);
 
+        // Open full-screen by default, matching Medicines, Sales, Sales History,
+        // Low Stock, Expiry Alert, and Settings.
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setVisible(true);
     }
 
@@ -67,8 +85,10 @@ public class ReportsFrame {
     private void buildReportCatalog() {
         List<ReportDefinition> revenue = new java.util.ArrayList<>();
         List<ReportDefinition> medicine = new java.util.ArrayList<>();
+        List<ReportDefinition> inventory = new java.util.ArrayList<>();
         catalog.put("Revenue Reports", revenue);
         catalog.put("Medicine Reports", medicine);
+        catalog.put("Inventory Reports", inventory);
 
         revenue.add(new ReportDefinition("Revenue Report", (s, e) -> {
             Object[] b = reportsDAO.revenueBreakdown(s, e);
@@ -83,36 +103,50 @@ public class ReportsFrame {
                     java.util.Collections.singletonList(new Object[]{ sm[0], currency((double) sm[1]), currency((double) sm[2]) }));
         }));
 
-        medicine.add(new ReportDefinition("Newly Added Stock Report", (s, e) ->
-            new ReportResult(new String[]{"Medicine", "Company", "Distributor", "Batch No", "Quantity Added", "Added On"},
-                    reportsDAO.newlyAddedStock(s, e))));
-
-        medicine.add(new ReportDefinition("Medicines Sold Report", (s, e) -> {
-            List<Object[]> rows = new java.util.ArrayList<>(reportsDAO.medicineWiseSales(s, e));
-            rows.sort((a, b) -> String.valueOf(a[0]).compareToIgnoreCase(String.valueOf(b[0])));
-            return new ReportResult(new String[]{"Medicine", "Units Sold", "Revenue"}, rows);
+        medicine.add(new ReportDefinition(NEWLY_ADDED_STOCK_REPORT, (s, e) -> {
+            List<Object[]> rows = reportsDAO.newlyAddedStock(s, e);
+            List<Object[]> formattedRows = new java.util.ArrayList<>();
+            for (Object[] r : rows) {
+                formattedRows.add(new Object[]{
+                    r[0], r[1], r[2], r[3], currency((double) r[4]), r[5], r[6]
+                });
+            }
+            return new ReportResult(
+                    new String[]{"Medicine", "Company", "Distributor", "Batch No", "Purchase Price", "Quantity Added", "Added On"},
+                    formattedRows);
         }));
 
-        medicine.add(new ReportDefinition("Medicine-wise Sales Report", (s, e) ->
-            new ReportResult(new String[]{"Medicine", "Units Sold", "Revenue"},
-                    reportsDAO.medicineWiseSales(s, e),
-                    "Units of each medicine sold during the selected period, highest first.")));
+        medicine.add(new ReportDefinition("Medicine Sales Report", (s, e) -> {
+            List<Object[]> rows = reportsDAO.medicineSalesReport(s, e);
+            Object[] summary = reportsDAO.medicineSalesSummary(rows);
 
-        medicine.add(new ReportDefinition("Most Sold Medicines", (s, e) ->
-            new ReportResult(new String[]{"Medicine", "Units Sold", "Revenue"},
-                    reportsDAO.mostSoldMedicines(s, e, 10),
-                    "Top 10 medicines by units sold.")));
+            List<Object[]> formattedRows = new java.util.ArrayList<>();
+            for (Object[] r : rows) {
+                formattedRows.add(new Object[]{
+                    r[0], r[1], r[2], r[3], r[4],
+                    currency((double) r[5]), currency((double) r[6]), currency((double) r[7]), currency((double) r[8]),
+                    r[9], r[10], r[11]
+                });
+            }
 
-        medicine.add(new ReportDefinition("Total Medicines Sold", (s, e) ->
-            singleStat("Total Medicines Sold (distinct)", String.valueOf(reportsDAO.totalMedicinesSold(s, e)))));
+            Map<String, String> summaryStats = new LinkedHashMap<>();
+            summaryStats.put("Total Medicines Sold", String.valueOf(summary[0]));
+            summaryStats.put("Total Quantity Sold", String.valueOf(summary[1]));
+            summaryStats.put("Total Medicine Revenue", currency((double) summary[2]));
+            summaryStats.put("Total Medicine Profit", currency((double) summary[3]));
 
-        medicine.add(new ReportDefinition("Total Quantity Sold", (s, e) ->
-            singleStat("Total Quantity Sold (units)", String.valueOf(reportsDAO.totalQuantitySold(s, e)))));
-    }
+            return new ReportResult(
+                    new String[]{"Invoice No", "Sale Date & Time", "Medicine Name", "Company", "Qty Sold",
+                        "Purchase Price", "Sale Price", "Profit/Unit", "Total Profit", "Expiry Date", "Batch No", "Distributor"},
+                    formattedRows,
+                    "Complete sales history for every medicine sold in the selected period.",
+                    summaryStats);
+        }));
 
-    private static ReportResult singleStat(String label, String value) {
-        return new ReportResult(new String[]{"Metric", "Value"},
-                java.util.Collections.singletonList(new Object[]{ label, value }));
+        inventory.add(new ReportDefinition("Inventory Adjustment History", (s, e) ->
+            new ReportResult(new String[]{"Medicine", "Previous Qty", "New Qty", "Change", "Adjusted On", "Updated By"},
+                    reportsDAO.inventoryAdjustments(s, e),
+                    "Full audit trail of manual quantity edits made on the Medicine Management screen.")));
     }
 
     private static String currency(double amount) {
@@ -173,6 +207,12 @@ public class ReportsFrame {
 
         currentReport = def;
         reportTitleLabel.setText(def.name);
+
+        boolean showSearch = NEWLY_ADDED_STOCK_REPORT.equals(def.name);
+        searchField.setText("");
+        searchPanel.setVisible(showSearch);
+        tableSorter.setRowFilter(null);
+
         generateReport();
     }
 
@@ -253,6 +293,27 @@ public class ReportsFrame {
 
         container.add(filterRow);
 
+        searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        searchPanel.setBackground(Color.WHITE);
+        searchPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+        searchPanel.setVisible(false);
+
+        JLabel searchLbl = new JLabel("Search:");
+        searchPanel.add(searchLbl);
+
+        searchField = new JTextField(24);
+        searchField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        searchField.putClientProperty("JTextField.placeholderText", "Medicine, Company, Distributor, or Batch No...");
+        searchPanel.add(searchField);
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { applySearchFilter(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { applySearchFilter(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { applySearchFilter(); }
+        });
+
+        container.add(searchPanel);
+
         statusLabel = new JLabel(" ");
         statusLabel.setForeground(new Color(180, 60, 60));
         statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -279,13 +340,15 @@ public class ReportsFrame {
                 return false;
             }
         };
-        JTable table = new JTable(tableModel);
-        table.setRowHeight(26);
-        table.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
-        table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        resultsTable = new JTable(tableModel);
+        tableSorter = new TableRowSorter<>(tableModel);
+        resultsTable.setRowSorter(tableSorter);
+        resultsTable.setRowHeight(26);
+        resultsTable.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        resultsTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
+        resultsTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
 
-        JScrollPane tableScroll = new JScrollPane(table);
+        JScrollPane tableScroll = new JScrollPane(resultsTable);
         tableScroll.setBorder(BorderFactory.createLineBorder(new Color(225, 225, 225)));
         resultsPanel.add(tableScroll, BorderLayout.CENTER);
 
@@ -388,6 +451,10 @@ public class ReportsFrame {
             noteLbl.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
             summaryPanel.add(noteLbl);
         }
+        if (result.summaryStats != null && !result.summaryStats.isEmpty()) {
+            summaryPanel.add(buildSummaryStatsRow(result.summaryStats));
+            summaryPanel.add(Box.createVerticalStrut(10));
+        }
         summaryPanel.revalidate();
         summaryPanel.repaint();
 
@@ -400,6 +467,78 @@ public class ReportsFrame {
         } else {
             statusLabel.setText(" ");
         }
+
+        // Re-apply any active search keyword on top of the freshly generated,
+        // date-filtered rows (date range filters first, search narrows further).
+        applySearchFilter();
+    }
+
+    /** Filters the currently displayed rows by the Search box, restricted to
+     *  the Newly Added Stock Report (Medicine / Company / Distributor /
+     *  Batch No columns). No-op - and clears any filter - for every other
+     *  report, since only this one shows the search box. */
+    private void applySearchFilter() {
+        if (currentReport == null || !NEWLY_ADDED_STOCK_REPORT.equals(currentReport.name)) {
+            tableSorter.setRowFilter(null);
+            return;
+        }
+
+        String text = searchField.getText().trim();
+        if (text.isEmpty()) {
+            tableSorter.setRowFilter(null);
+            return;
+        }
+
+        String lower = text.toLowerCase();
+        tableSorter.setRowFilter(new RowFilter<DefaultTableModel, Integer>() {
+            @Override
+            public boolean include(Entry<? extends DefaultTableModel, ? extends Integer> entry) {
+                for (int col : STOCK_SEARCH_COLUMNS) {
+                    if (col >= entry.getModel().getColumnCount()) continue;
+                    Object value = entry.getValue(col);
+                    if (value != null && value.toString().toLowerCase().contains(lower)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+    }
+
+    /** A row of small "stat cards" (label + value) for a report's Summary section,
+     *  shown above the results table - e.g. Total Medicines Sold / Total Quantity
+     *  Sold / Total Medicine Revenue / Total Medicine Profit for the selected
+     *  date range on the Medicine Sales Report. */
+    private JComponent buildSummaryStatsRow(Map<String, String> stats) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        row.setBackground(new Color(245, 248, 250));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setBorder(BorderFactory.createEmptyBorder());
+
+        for (Map.Entry<String, String> stat : stats.entrySet()) {
+            JPanel card = new JPanel();
+            card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+            card.setBackground(Color.WHITE);
+            card.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(225, 225, 225)),
+                    BorderFactory.createEmptyBorder(10, 16, 10, 16)));
+
+            JLabel valueLbl = new JLabel(stat.getValue());
+            valueLbl.setFont(new Font("Segoe UI", Font.BOLD, 18));
+            valueLbl.setForeground(new Color(0, 102, 102));
+            valueLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            JLabel labelLbl = new JLabel(stat.getKey());
+            labelLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            labelLbl.setForeground(new Color(110, 110, 110));
+            labelLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            card.add(valueLbl);
+            card.add(labelLbl);
+            row.add(card);
+        }
+
+        return row;
     }
 
     // ============================================================
@@ -425,15 +564,21 @@ public class ReportsFrame {
         final String[] columns;
         final List<Object[]> rows;
         final String note;
+        final Map<String, String> summaryStats;
 
         ReportResult(String[] columns, List<Object[]> rows) {
             this(columns, rows, null);
         }
 
         ReportResult(String[] columns, List<Object[]> rows, String note) {
+            this(columns, rows, note, null);
+        }
+
+        ReportResult(String[] columns, List<Object[]> rows, String note, Map<String, String> summaryStats) {
             this.columns = columns;
             this.rows = rows;
             this.note = note;
+            this.summaryStats = summaryStats;
         }
     }
 }

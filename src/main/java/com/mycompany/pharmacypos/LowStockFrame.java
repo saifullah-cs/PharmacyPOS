@@ -2,6 +2,7 @@ package com.mycompany.pharmacypos;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import java.awt.*;
 
 /**
  * The "Low Stock" screen, opened from the Home dashboard.
@@ -18,15 +19,25 @@ public class LowStockFrame {
         lowFrame.setLocationRelativeTo(null);
         lowFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         lowFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        lowFrame.setLayout(new BorderLayout());
+
+        int threshold = appSettingsDAO.getLowStockThreshold();
+
+        // Threshold label, pulled live from the Settings module every time this
+        // screen opens - so it's always in sync even if the threshold was just
+        // changed on the Settings screen, with no need to reopen this one.
+        JLabel thresholdLabel = new JLabel("Low Stock Threshold: " + threshold + " units");
+        thresholdLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        thresholdLabel.setForeground(new Color(90, 90, 90));
+        thresholdLabel.setBorder(BorderFactory.createEmptyBorder(15, 20, 10, 20));
+        lowFrame.add(thresholdLabel, BorderLayout.NORTH);
 
         String[] columns = { "ID", "Medicine", "Company", "Distributor Name", "Batch Number", "Quantity", "Expiry Date" };
         DefaultTableModel model = new DefaultTableModel(columns, 0);
         JTable table = new JTable(model);
         JScrollPane sp = new JScrollPane(table);
-        sp.setBounds(20, 20, 1040, 450);
-        lowFrame.add(sp);
-
-        int threshold = appSettingsDAO.getLowStockThreshold();
+        sp.setBorder(BorderFactory.createEmptyBorder(0, 20, 20, 20));
+        lowFrame.add(sp, BorderLayout.CENTER);
 
         try {
             int count = medicineDAO.loadLowStock(model, threshold);

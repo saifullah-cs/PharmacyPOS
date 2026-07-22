@@ -36,14 +36,14 @@ public class ExpiryAlert {
                 LocalDate expiry = expirySql.toLocalDate();
                 long daysLeft = java.time.temporal.ChronoUnit.DAYS.between(today, expiry);
 
-                String status;
-                if (daysLeft < 0) {
-                    status = "EXPIRED";
-                } else if (daysLeft <= 180) {
-                    status = daysLeft + " days left";
-                } else {
-                    status = "Safe";
+                // Only medicines that are expired or expiring within the next 6 months
+                // (180 days) require attention. Anything beyond that is "Safe" and
+                // should not be shown on this screen at all.
+                if (daysLeft > 180) {
+                    continue;
                 }
+
+                String status = (daysLeft < 0) ? "Expired" : "Expiring Soon";
 
                 model.addRow(new Object[]{
                     rs.getString("medicine_name"),
@@ -63,13 +63,15 @@ public class ExpiryAlert {
                     Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                     String status = table.getValueAt(row, 6).toString();
 
-                    if (status.contains("EXPIRED")) {
+                    if (status.equals("Expired")) {
                         c.setBackground(Color.RED);
                         c.setForeground(Color.WHITE);
-                    } else if (status.contains("days left")) {
-                        c.setBackground(Color.ORANGE);
+                    } else if (status.equals("Expiring Soon")) {
+                        c.setBackground(Color.YELLOW);
+                        c.setForeground(Color.BLACK);
                     } else {
                         c.setBackground(Color.WHITE);
+                        c.setForeground(Color.BLACK);
                     }
                     return c;
                 }

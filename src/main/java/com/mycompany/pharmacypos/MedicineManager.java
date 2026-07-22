@@ -4,8 +4,7 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
+import java.awt.event.*;
 
 public class MedicineManager {
 
@@ -14,9 +13,13 @@ public class MedicineManager {
 
     // Form Fields (admin only)
     private static JTextField txtMedicineName, txtCompany, txtPurchasePrice, txtSalePrice;
-    private static JTextField txtQuantity, txtExpiry, txtBatchNo, txtDistributor;
+    private static JTextField txtQuantity, txtExpiry, txtBatchNo;
     private static JTextField txtSearch;
     private static JComboBox<String> cmbCategory;
+    private static JComboBox<String> cmbDistributor;
+
+    // DAO - handles distributor lookups for the read-only drop-down above
+    private static final DistributorDAO distributorDAO = new DistributorDAO();
 
     // Table
     private static JTable medicineTable;
@@ -25,6 +28,9 @@ public class MedicineManager {
 
     // Buttons (admin only)
     private static JButton btnAdd, btnDelete, btnClear;
+
+    // Total-inventory-size summary label (admin only, shown below the buttons)
+    private static JLabel lblTotalMedicines;
 
     // DAO - handles all database access for this screen
     private static final MedicineDAO medicineDAO = new MedicineDAO();
@@ -49,6 +55,7 @@ public class MedicineManager {
 
         createUI();
         loadMedicineTable("");   // Initial load
+        updateTotalMedicinesLabel();
 
         medicineFrame.setVisible(true);
     }
@@ -110,13 +117,27 @@ public class MedicineManager {
         txtBatchNo = createTextField(x + 130, y); y += gap;
 
         addLabel("Distributor:", x, y);
-        txtDistributor = createTextField(x + 130, y); y += gap;
+        java.util.List<String> distributorNames = distributorDAO.getAllDistributorNames();
+        cmbDistributor = new JComboBox<>(distributorNames.toArray(new String[0]));
+        cmbDistributor.setBounds(x + 130, y, 200, 28);
+        mainPanel.add(cmbDistributor);
+        y += gap;
 
         addLabel("Category:", x, y);
         String[] categories = {"Tablet", "Capsule", "Syrup", "Injection", "Cream", "Drops", "Other"};
         cmbCategory = new JComboBox<>(categories);
         cmbCategory.setBounds(x + 130, y, 200, 28);
         mainPanel.add(cmbCategory);
+
+        // Enter moves focus through the fields in order (mirrors visual tab order);
+        // the Add button itself is still only triggered by a mouse click.
+        chainEnterFocus(txtMedicineName, txtCompany);
+        chainEnterFocus(txtCompany, txtPurchasePrice);
+        chainEnterFocus(txtPurchasePrice, txtSalePrice);
+        chainEnterFocus(txtSalePrice, txtQuantity);
+        chainEnterFocus(txtQuantity, txtExpiry);
+        chainEnterFocus(txtExpiry, txtBatchNo);
+        chainEnterFocus(txtBatchNo, cmbDistributor);
 
         y += 55;
         btnAdd = createButton("Add", x, y, new Color(0, 153, 76));
@@ -126,6 +147,23 @@ public class MedicineManager {
         btnAdd.addActionListener(e -> addMedicine());
         btnDelete.addActionListener(e -> deleteMedicine());
         btnClear.addActionListener(e -> clearFields());
+
+        // Compact inventory-size summary, sitting neatly below the action row.
+        y += 45;
+        lblTotalMedicines = new JLabel("Total Medicines: 0");
+        lblTotalMedicines.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        lblTotalMedicines.setForeground(new Color(90, 90, 90));
+        lblTotalMedicines.setBounds(x, y, 300, 25);
+        mainPanel.add(lblTotalMedicines);
+    }
+
+    /** Refreshes the "Total Medicines" label from the DB - always the true
+     *  inventory size, regardless of any active search filter. No-op for the
+     *  cashier's read-only view, which doesn't have this label. */
+    private static void updateTotalMedicinesLabel() {
+        if (lblTotalMedicines != null) {
+            lblTotalMedicines.setText("Total Medicines: " + medicineDAO.getTotalMedicineCount());
+        }
     }
 
     // ================= TABLE (shown to everyone, editable admin-only) =================
@@ -196,11 +234,82 @@ public class MedicineManager {
         return btn;
     }
 
+    /** Pressing Enter in `field` moves focus to `next`, instead of doing nothing.
+     *  Used to chain the medicine form fields in visual/tab order. */
+    private static void chainEnterFocus(JTextField field, JComponent next) {
+        field.addActionListener(e -> next.requestFocusInWindow());
+    }
+
+    /** A Yes/No confirmation dialog with proper keyboard support:
+     *  - "Yes" is focused (and the active default button) as soon as it opens
+     *  - Left/Right arrow keys move focus between Yes and No
+     *  - Enter always activates whichever option currently has focus
+     *  Returns true only if the user picked "Yes". */
+    private static boolean confirmDelete(String message) {
+        JOptionPane optionPane = new JOptionPane(message, JOptionPane.QUESTION_MESSAGE, JOptionPane.YES_NO_OPTION);
+        JDialog dialog = optionPane.createDialog(medicineFrame, "Confirm Delete");
+
+        java.util.List<JButton> buttons = new java.util.ArrayList<>();
+        collectButtons(dialog.getContentPane(), buttons);
+
+        if (buttons.size() == 2) {
+            JButton yesBtn = buttons.get(0);
+            JButton noBtn = buttons.get(1);
+
+            for (JButton btn : buttons) {
+                JButton other = (btn == yesBtn) ? noBtn : yesBtn;
+
+                btn.addFocusListener(new FocusAdapter() {
+                    @Override
+                    public void focusGained(FocusEvent e) {
+                        dialog.getRootPane().setDefaultButton(btn);
+                    }
+                });
+
+                btn.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("LEFT"), "moveFocus");
+                btn.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("RIGHT"), "moveFocus");
+                btn.getActionMap().put("moveFocus", new AbstractAction() {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+                        other.requestFocusInWindow();
+                    }
+                });
+            }
+
+            dialog.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowOpened(WindowEvent e) {
+                    yesBtn.requestFocusInWindow();
+                    dialog.getRootPane().setDefaultButton(yesBtn);
+                }
+            });
+        }
+
+        dialog.setVisible(true);
+        Object value = optionPane.getValue();
+        dialog.dispose();
+        return value instanceof Integer && (Integer) value == JOptionPane.YES_OPTION;
+    }
+
+    private static void collectButtons(Component comp, java.util.List<JButton> out) {
+        if (comp instanceof JButton) {
+            out.add((JButton) comp);
+        } else if (comp instanceof Container) {
+            for (Component child : ((Container) comp).getComponents()) {
+                collectButtons(child, out);
+            }
+        }
+    }
+
     // ================= CRUD METHODS (admin only - delegate to MedicineDAO) =================
     private static void addMedicine() {
         try {
             if (txtMedicineName.getText().trim().isEmpty()) {
                 JOptionPane.showMessageDialog(medicineFrame, "Medicine Name is required!", "Validation", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (cmbDistributor.getSelectedItem() == null) {
+                JOptionPane.showMessageDialog(medicineFrame, "Please add a distributor in Settings > Distributor Management first!", "Validation", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
@@ -213,7 +322,7 @@ public class MedicineManager {
                     txtExpiry.getText().trim(),
                     cmbCategory.getSelectedItem().toString(),
                     txtBatchNo.getText().trim(),
-                    txtDistributor.getText().trim()
+                    cmbDistributor.getSelectedItem() != null ? cmbDistributor.getSelectedItem().toString() : ""
             );
 
             if (success) {
@@ -221,6 +330,7 @@ public class MedicineManager {
                 loadMedicineTable(txtSearch.getText().trim());
                 clearFields();
                 HomeFrame.refreshDashboardStatic();
+                updateTotalMedicinesLabel();
             }
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(medicineFrame, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
@@ -242,14 +352,14 @@ public class MedicineManager {
         int id = (int) tableModel.getValueAt(selectedRow, 0);
         String name = (String) tableModel.getValueAt(selectedRow, 1);
 
-        int confirm = JOptionPane.showConfirmDialog(medicineFrame, "Delete " + name + "?", "Confirm Delete", JOptionPane.YES_NO_OPTION);
-        if (confirm != JOptionPane.YES_OPTION) return;
+        if (!confirmDelete("Delete " + name + "?")) return;
 
         boolean success = medicineDAO.deleteMedicine(id);
         if (success) {
             JOptionPane.showMessageDialog(medicineFrame, "Medicine Deleted Successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
             loadMedicineTable(txtSearch.getText().trim());
             HomeFrame.refreshDashboardStatic();
+            updateTotalMedicinesLabel();
         } else {
             JOptionPane.showMessageDialog(medicineFrame, "Delete Error!", "Error", JOptionPane.ERROR_MESSAGE);
         }
@@ -263,7 +373,9 @@ public class MedicineManager {
         txtQuantity.setText("");
         txtExpiry.setText("");
         txtBatchNo.setText("");
-        txtDistributor.setText("");
+        if (cmbDistributor.getItemCount() > 0) {
+            cmbDistributor.setSelectedIndex(0);
+        }
         cmbCategory.setSelectedIndex(0);
     }
 

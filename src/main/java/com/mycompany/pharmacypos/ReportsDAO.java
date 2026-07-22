@@ -162,6 +162,7 @@ public class ReportsDAO {
 
     /** True once, cached, so repeated calls to newlyAddedStock() don't re-check schema every time. */
     private static Boolean hasCreatedAtColumn = null;
+    private static Boolean hasQuantityAddedColumn = null;
 
     private boolean hasCreatedAtColumn(Connection con) throws SQLException {
         if (hasCreatedAtColumn != null) return hasCreatedAtColumn;
@@ -171,13 +172,25 @@ public class ReportsDAO {
         return hasCreatedAtColumn;
     }
 
+    private boolean hasQuantityAddedColumn(Connection con) throws SQLException {
+        if (hasQuantityAddedColumn != null) return hasQuantityAddedColumn;
+        try (ResultSet rs = con.getMetaData().getColumns(null, null, "medicines", "quantity_added")) {
+            hasQuantityAddedColumn = rs.next();
+        }
+        return hasQuantityAddedColumn;
+    }
+
     /**
      * Medicines added to inventory in range. Requires a "created_at" TIMESTAMP
-     * column on the medicines table (not present in the original schema).
-     * If it's missing, this throws a clear, actionable error instead of
-     * silently showing wrong data - the screen surfaces that message with
-     * the exact SQL needed to add it:
-     *   ALTER TABLE medicines ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+     * column and a "quantity_added" column on the medicines table (neither
+     * present in the original schema). If either is missing, this throws a
+     * clear, actionable error instead of silently showing wrong data - the
+     * screen surfaces that message with the exact SQL needed to add it.
+     *
+     * "quantity_added" is the original quantity added to inventory and is
+     * never decremented by sales, unlike "quantity" (the live remaining
+     * stock) - so this report always shows what was actually added, not
+     * what's currently left.
      */
     public List<Object[]> newlyAddedStock(LocalDate start, LocalDate end) throws Exception {
         List<Object[]> rows = new ArrayList<>();
@@ -190,7 +203,17 @@ public class ReportsDAO {
                     "Existing rows will show as added \"now\" - only medicines added after that point " +
                     "will have an accurate date.");
             }
-            String sql = "SELECT medicine_name, company, distributor, batch_no, quantity, created_at " +
+            if (!hasQuantityAddedColumn(con)) {
+                throw new IllegalStateException(
+                    "This report needs a \"quantity_added\" column on the medicines table so it can show " +
+                    "the original quantity added instead of the current remaining stock. Ask your DB " +
+                    "admin to run:\n\n" +
+                    "ALTER TABLE medicines ADD COLUMN quantity_added INT NOT NULL DEFAULT 0;\n" +
+                    "UPDATE medicines SET quantity_added = quantity;\n\n" +
+                    "That backfills existing rows with their current quantity as a starting point - only " +
+                    "medicines added or restocked after that point will have a fully accurate figure.");
+            }
+            String sql = "SELECT medicine_name, company, distributor, batch_no, purchase_price, quantity_added, created_at " +
                          "FROM medicines WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC";
             try (PreparedStatement ps = con.prepareStatement(sql)) {
                 ps.setTimestamp(1, startOf(start));
@@ -200,7 +223,8 @@ public class ReportsDAO {
                         rows.add(new Object[]{
                             rs.getString("medicine_name"), rs.getString("company"),
                             rs.getString("distributor"), rs.getString("batch_no"),
-                            rs.getInt("quantity"), rs.getTimestamp("created_at")
+                            rs.getDouble("purchase_price"),
+                            rs.getInt("quantity_added"), rs.getTimestamp("created_at")
                         });
                     }
                 }
@@ -209,59 +233,106 @@ public class ReportsDAO {
         return rows;
     }
 
-    /** Per medicine: units sold and medicine-fee revenue, in range. Backs the
-     *  "Medicines Sold", "Medicine-wise Sales", and "Most Sold Medicines" report
-     *  entries, and is the base data for Total Medicines Sold / Total Quantity Sold. */
-    public List<Object[]> medicineWiseSales(LocalDate start, LocalDate end) throws Exception {
+    /** Manual quantity adjustments made on the Medicine Management screen, in
+     *  range - the audit trail behind the "Inventory Adjustment History" report. */
+    public List<Object[]> inventoryAdjustments(LocalDate start, LocalDate end) throws Exception {
+        return new StockAdjustmentDAO().loadAdjustments(start, end);
+    }
+
+    /** True once, cached, so repeated calls to medicineSalesReport() don't re-check
+     *  schema every time. Mirrors SalesDAO's own cached check for the same column -
+     *  kept as a separate cache here since this class doesn't share state with SalesDAO. */
+    private static Boolean hasSalesCompanyColumn = null;
+
+    private boolean hasSalesCompanyColumn(Connection con) throws SQLException {
+        if (hasSalesCompanyColumn != null) return hasSalesCompanyColumn;
+        try (ResultSet rs = con.getMetaData().getColumns(null, null, "sales", "company")) {
+            hasSalesCompanyColumn = rs.next();
+        }
+        return hasSalesCompanyColumn;
+    }
+
+    /**
+     * One row per medicine line item sold in range - the full detail behind the
+     * "Medicine Sales Report". "sales" only stores what was charged (medicine
+     * name, quantity, sale price, expiry date, and - since the Medicine Search &
+     * Company Identification change - company); it never stores purchase price
+     * or batch/distributor, so this joins back to "medicines" (matched on
+     * medicine_name + expiry_date, which together identify the exact batch that
+     * was sold) to pull those in. That join picks one medicines row per
+     * (medicine_name, expiry_date) - via MIN(id) - so a sale never fans out into
+     * duplicate rows even if the same medicine/expiry combination was added to
+     * inventory more than once.
+     *
+     * Columns: Invoice No, Sale Date & Time, Medicine Name, Company, Quantity
+     * Sold, Purchase Price, Sale Price, Profit/Unit, Total Profit, Expiry Date,
+     * Batch No, Distributor.
+     *
+     * If a sold medicine can no longer be matched back to a "medicines" row
+     * (e.g. it was later deleted from inventory), Purchase Price/Batch No/
+     * Distributor come back blank/zero for that row rather than dropping the
+     * sale from the report; Company still shows correctly as long as it was
+     * captured on the sale itself.
+     */
+    public List<Object[]> medicineSalesReport(LocalDate start, LocalDate end) throws Exception {
         List<Object[]> rows = new ArrayList<>();
-        String sql = "SELECT medicine_name, SUM(quantity) AS units_sold, SUM(total_bill) AS revenue " +
-                     "FROM sales WHERE sale_date >= ? AND sale_date < ? AND medicine_name IS NOT NULL AND medicine_name <> '' " +
-                     "GROUP BY medicine_name ORDER BY units_sold DESC";
-        try (Connection con = DBConnection.getConnection();
-             PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setTimestamp(1, startOf(start));
-            ps.setTimestamp(2, endOf(end));
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    rows.add(new Object[]{
-                        rs.getString("medicine_name"), rs.getInt("units_sold"), rs.getDouble("revenue")
-                    });
+        try (Connection con = DBConnection.getConnection()) {
+            // Sales made after the Medicine Search & Company Identification change record
+            // their own company directly on "sales" - that's the exact manufacturer that
+            // was actually sold, so it's preferred over the medicines-table join below
+            // whenever it's available. Older sale rows (or installs that haven't added the
+            // column yet) fall back to the best-effort medicines-table match.
+            boolean hasSalesCompany = hasSalesCompanyColumn(con);
+            String companyExpr = hasSalesCompany ? "COALESCE(s.company, m.company)" : "m.company";
+            String sql =
+                "SELECT s.invoice_no, s.sale_date, s.medicine_name, " + companyExpr + " AS company, s.quantity, " +
+                "m.purchase_price, s.sale_price, s.expiry_date, m.batch_no, m.distributor " +
+                "FROM sales s " +
+                "LEFT JOIN (SELECT medicine_name, expiry_date, MIN(id) AS id FROM medicines " +
+                "           GROUP BY medicine_name, expiry_date) mm " +
+                "  ON mm.medicine_name = s.medicine_name AND mm.expiry_date = s.expiry_date " +
+                "LEFT JOIN medicines m ON m.id = mm.id " +
+                "WHERE s.sale_date >= ? AND s.sale_date < ? AND s.medicine_name IS NOT NULL AND s.medicine_name <> '' " +
+                "ORDER BY s.sale_date DESC";
+            try (PreparedStatement ps = con.prepareStatement(sql)) {
+                ps.setTimestamp(1, startOf(start));
+                ps.setTimestamp(2, endOf(end));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int quantity = rs.getInt("quantity");
+                        double purchasePrice = rs.getDouble("purchase_price");
+                        double salePrice = rs.getDouble("sale_price");
+                        double profitPerUnit = salePrice - purchasePrice;
+                        rows.add(new Object[]{
+                            rs.getString("invoice_no"), rs.getTimestamp("sale_date"),
+                            rs.getString("medicine_name"), rs.getString("company"),
+                            quantity, purchasePrice, salePrice, profitPerUnit, profitPerUnit * quantity,
+                            rs.getDate("expiry_date"), rs.getString("batch_no"), rs.getString("distributor")
+                        });
+                    }
                 }
             }
         }
         return rows;
     }
 
-    /** Count of distinct medicines that had at least one sale in range. */
-    public int totalMedicinesSold(LocalDate start, LocalDate end) throws Exception {
-        String sql = "SELECT COUNT(DISTINCT medicine_name) AS cnt FROM sales " +
-                     "WHERE sale_date >= ? AND sale_date < ? AND medicine_name IS NOT NULL AND medicine_name <> ''";
-        try (Connection con = DBConnection.getConnection();
-             PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setTimestamp(1, startOf(start));
-            ps.setTimestamp(2, endOf(end));
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getInt("cnt") : 0;
-            }
+    /** Totals for the "Medicine Sales Report" summary section, derived from that
+     *  report's own rows so the numbers can never drift out of sync with the
+     *  detail table above it: distinct medicines sold, total units sold, total
+     *  medicine revenue (sale price x quantity), and total profit. */
+    public Object[] medicineSalesSummary(List<Object[]> medicineSalesRows) {
+        java.util.Set<Object> distinctMedicines = new java.util.HashSet<>();
+        int totalQuantity = 0;
+        double totalRevenue = 0;
+        double totalProfit = 0;
+        for (Object[] row : medicineSalesRows) {
+            distinctMedicines.add(row[2]);
+            int quantity = (int) row[4];
+            double salePrice = (double) row[6];
+            totalQuantity += quantity;
+            totalRevenue += salePrice * quantity;
+            totalProfit += (double) row[8];
         }
-    }
-
-    /** Total units of medicine sold (all medicines combined) in range. */
-    public int totalQuantitySold(LocalDate start, LocalDate end) throws Exception {
-        String sql = "SELECT COALESCE(SUM(quantity),0) AS total_qty FROM sales WHERE sale_date >= ? AND sale_date < ?";
-        try (Connection con = DBConnection.getConnection();
-             PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setTimestamp(1, startOf(start));
-            ps.setTimestamp(2, endOf(end));
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getInt("total_qty") : 0;
-            }
-        }
-    }
-
-    /** Top N medicines by units sold in range (Most Sold Medicines). */
-    public List<Object[]> mostSoldMedicines(LocalDate start, LocalDate end, int limit) throws Exception {
-        List<Object[]> all = medicineWiseSales(start, end);
-        return all.size() > limit ? all.subList(0, limit) : all;
+        return new Object[]{ distinctMedicines.size(), totalQuantity, totalRevenue, totalProfit };
     }
 }

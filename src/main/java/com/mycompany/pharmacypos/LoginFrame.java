@@ -240,11 +240,9 @@ public class LoginFrame {
 
             JLabel userLabel = fieldLabel("Username");
             RoundedTextField userField = new RoundedTextField();
-            userField.setBorder(new EmptyBorder(0, 0, 22, 0));
 
             JLabel passLabel = fieldLabel("Password");
             RoundedPasswordField passField = new RoundedPasswordField();
-            passField.setBorder(new EmptyBorder(0, 0, 6, 0));
 
             JLabel errorLabel = new JLabel(" ");
             errorLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
@@ -264,9 +262,11 @@ public class LoginFrame {
             gc.gridy = 0; add(title, gc);
             gc.gridy = 1; add(subtitle, gc);
             gc.gridy = 2; add(userLabel, gc);
-            gc.gridy = 3; add(userField, gc);
+            gc.gridy = 3; gc.insets = new Insets(0, 0, 22, 0); add(userField, gc);
+            gc.insets = new Insets(0, 0, 0, 0);
             gc.gridy = 4; add(passLabel, gc);
-            gc.gridy = 5; add(passField, gc);
+            gc.gridy = 5; gc.insets = new Insets(0, 0, 6, 0); add(passField, gc);
+            gc.insets = new Insets(0, 0, 0, 0);
             gc.gridy = 6; add(errorLabel, gc);
             gc.gridy = 7; add(loginBtn, gc);
             gc.gridy = 8; add(footer, gc);
@@ -284,7 +284,10 @@ public class LoginFrame {
             };
 
             loginBtn.addActionListener(e -> attemptLogin.run());
+            userField.addActionListener(e -> passField.requestFocusInWindow());
             passField.addActionListener(e -> attemptLogin.run());
+
+            SwingUtilities.invokeLater(userField::requestFocusInWindow);
         }
 
         private JLabel fieldLabel(String text) {
@@ -362,7 +365,7 @@ public class LoginFrame {
             super();
             setOpaque(false);
             setMargin(new Insets(0, 0, 0, 0));
-            setBorder(new EmptyBorder(13, 18, 11, 14));
+            setBorder(new EmptyBorder(12, 20, 12, 14));
             setFont(new Font("Segoe UI", Font.PLAIN, 15));
             setForeground(TEXT_DARK);
             addFocusListener(new FocusAdapter() {
@@ -409,7 +412,7 @@ public class LoginFrame {
             super();
             setOpaque(false);
             setMargin(new Insets(0, 0, 0, 0));
-            setBorder(new EmptyBorder(13, 18, 11, 14));
+            setBorder(new EmptyBorder(12, 20, 12, 14));
             setFont(new Font("Segoe UI", Font.PLAIN, 15));
             setForeground(TEXT_DARK);
             setEchoChar('\u2022');

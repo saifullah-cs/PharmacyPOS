@@ -39,8 +39,26 @@ public class SalesFrame {
     // moving a highlight, making it impossible to reach later suggestions)
     JTextField searchField;
     private JWindow suggestionPopup;
-    private JList<String> suggestionList;
-    private DefaultListModel<String> suggestionListModel;
+    private JList<SalesDAO.MedicineSuggestion> suggestionList;
+    private DefaultListModel<SalesDAO.MedicineSuggestion> suggestionListModel;
+
+    // Company of whichever medicine is currently loaded into medicineLabel/stockLabel/
+    // priceLabel - set when a specific name+company suggestion is picked, so "Add To
+    // Bill" can save the right manufacturer even when two medicines share a name.
+    // Reset to null whenever the search text changes without a suggestion being chosen,
+    // so a plain typed search falls back to the old "first match by name" behavior.
+    private String currentCompany;
+
+    // The medicines table primary key of whichever medicine is currently loaded - the
+    // one value guaranteed to identify this exact row, even when another medicine shares
+    // its name AND company (only quantity/batch/distributor differ, or truly everything
+    // matches except the id). Every place that used to test "is this the same medicine
+    // already in the bill?" by comparing name text alone must compare this id instead -
+    // that name-only comparison was the root cause of two same-named-but-different-company
+    // medicines getting merged into one bill row. -1 means "no specific row identified yet"
+    // (a plain typed search with no suggestion picked), in which case name is still used
+    // as a last-resort fallback so old behavior isn't broken for those searches.
+    private int currentMedicineId = -1;
 
     private final SalesDAO salesDAO = new SalesDAO();
     private final AppSettingsDAO appSettingsDAO = new AppSettingsDAO();
@@ -71,11 +89,11 @@ public class SalesFrame {
 
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
-            public void insertUpdate(DocumentEvent e) { SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
+            public void insertUpdate(DocumentEvent e) { currentCompany = null; currentMedicineId = -1; SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
             @Override
-            public void removeUpdate(DocumentEvent e) { SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
+            public void removeUpdate(DocumentEvent e) { currentCompany = null; currentMedicineId = -1; SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
             @Override
-            public void changedUpdate(DocumentEvent e) { SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
+            public void changedUpdate(DocumentEvent e) { currentCompany = null; currentMedicineId = -1; SwingUtilities.invokeLater(SalesFrame.this::showSuggestions); }
         });
 
         searchField.addKeyListener(new KeyAdapter() {
@@ -150,7 +168,7 @@ public class SalesFrame {
         clearBtn.setBounds(210,250,160,35);
         frame.add(clearBtn);
 
-        String columns[] = {"Medicine", "Price", "Quantity", "Total"};
+        String columns[] = {"Medicine", "Price", "Quantity", "Total", "Company", "MedicineId"};
         model = new DefaultTableModel(columns,0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -158,6 +176,12 @@ public class SalesFrame {
             }
         };
         billTable = new JTable(model);
+        // Company and MedicineId travel with each bill row (Company so it can be saved
+        // with the sale record, MedicineId so the row's exact identity - not just its
+        // display name - is recoverable) but neither is part of what the cashier sees.
+        // Removed highest column index first so the lower index doesn't shift under it.
+        billTable.getColumnModel().removeColumn(billTable.getColumnModel().getColumn(5));
+        billTable.getColumnModel().removeColumn(billTable.getColumnModel().getColumn(4));
         JScrollPane sp = new JScrollPane(billTable);
         sp.setBounds(420,60,530,470);
         frame.add(sp);
@@ -294,7 +318,13 @@ public class SalesFrame {
                 return;
             }
 
-            String invoiceNo = InvoiceService.saveSale(billTable, LoginFrame.loggedInUser, getDrFeeValue(), testsModel);
+            String invoiceNo;
+            try {
+                invoiceNo = InvoiceService.saveSale(billTable, LoginFrame.loggedInUser, getDrFeeValue(), testsModel);
+            } catch (IllegalStateException schemaIssue) {
+                JOptionPane.showMessageDialog(null, schemaIssue.getMessage(), "Database Setup Needed", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
 
             if (invoiceNo == null) {
                 JOptionPane.showMessageDialog(null, "Sale Failed!");
@@ -328,14 +358,18 @@ public class SalesFrame {
         });
 
         searchBtn.addActionListener(e -> {
-            SalesDAO.MedicineInfo info = salesDAO.findMedicineByName(searchField.getText());
+            SalesDAO.MedicineInfo info = (currentCompany != null)
+                    ? salesDAO.findMedicineByNameAndCompany(searchField.getText().trim(), currentCompany)
+                    : salesDAO.findMedicineByName(searchField.getText());
 
             if (info != null) {
                 medicineLabel.setText("Medicine : " + info.name);
-                int reserved = getQuantityInBillFor(info.name);
+                int reserved = getQuantityInBillFor(info.name, info.id);
                 int available = info.quantity - reserved;
                 stockLabel.setText("Stock : " + available);
                 priceLabel.setText("Price : Rs. " + info.salePrice);
+                currentCompany = info.company; // remember exactly which company this Add To Bill will save
+                currentMedicineId = info.id;   // and exactly which row, so bill-merging can't cross medicines
             } else {
                 JOptionPane.showMessageDialog(null, "Medicine Not Found!");
             }
@@ -397,42 +431,39 @@ public class SalesFrame {
             return;
         }
 
-                boolean found = false;
+                // BUG FIX: this used to find the existing row to merge into by comparing
+                // medicine NAME text only ("med.equalsIgnoreCase(medicine)"). Two medicines
+                // that share a name but have different companies (same batch, distributor,
+                // price - everything else identical) would match each other here, so adding
+                // the second one silently added its quantity onto the first one's row instead
+                // of creating its own row. Matching by medicine id (the DB primary key, the
+                // one field guaranteed unique per row) fixes this everywhere in the app that
+                // touches the bill, not just this one spot.
+                int existingRow = findBillRowIndexFor(medicine, currentMedicineId);
 
-                for (int i = 0; i < model.getRowCount(); i++) {
+                if (existingRow != -1) {
 
-                    String med =
-                            model.getValueAt(i, 0).toString();
+                    int oldQty =
+                            Integer.parseInt(
+                                    model.getValueAt(existingRow, 2).toString()
+                            );
 
-                    if (med.equalsIgnoreCase(medicine)) {
+                    int newQty = oldQty + qty;
 
-                        int oldQty =
-                                Integer.parseInt(
-                                        model.getValueAt(i, 2).toString()
-                                );
+                    model.setValueAt(newQty, existingRow, 2);
 
-                        int newQty = oldQty + qty;
+                    model.setValueAt(price * newQty, existingRow, 3);
 
-                        model.setValueAt(newQty, i, 2);
-
-                        model.setValueAt(price * newQty, i, 3);
-
-                        found = true;
-
-                        break;
-
-                    }
-
-                }
-
-                if (!found) {
+                } else {
 
                     model.addRow(new Object[]{
 
                             medicine,
                             price,
                             qty,
-                            price * qty
+                            price * qty,
+                            currentCompany,
+                            currentMedicineId == -1 ? null : currentMedicineId
 
                     });
 
@@ -448,6 +479,8 @@ public class SalesFrame {
         medicineLabel.setText("Medicine : -");
         stockLabel.setText("Stock : -");
         priceLabel.setText("Price : -");
+        currentCompany = null;
+        currentMedicineId = -1;
 
         searchField.requestFocus();
 
@@ -485,15 +518,34 @@ public class SalesFrame {
         }
     }
 
-    /** How much of this medicine is already sitting in the current bill (0 if none). */
-    private int getQuantityInBillFor(String medicineName) {
+    /** Returns the bill row index that represents this exact medicine, or -1 if it isn't
+     *  in the bill yet. Matches by medicine id whenever one is known (the only reliable
+     *  identity - two medicines can share every visible field except id), and only falls
+     *  back to a plain name comparison for the rare case where no id was resolved (e.g. a
+     *  typed search where findMedicineByName() matched but the row's id wasn't captured). */
+    private int findBillRowIndexFor(String medicineName, int medicineId) {
         for (int i = 0; i < model.getRowCount(); i++) {
-            String med = model.getValueAt(i, 0).toString();
-            if (med.equalsIgnoreCase(medicineName)) {
-                return Integer.parseInt(model.getValueAt(i, 2).toString());
+            if (medicineId != -1) {
+                Object idValue = model.getValueAt(i, 5);
+                if (idValue != null && ((Number) idValue).intValue() == medicineId) {
+                    return i;
+                }
+            } else {
+                String med = model.getValueAt(i, 0).toString();
+                Object idValue = model.getValueAt(i, 5);
+                boolean rowHasNoId = (idValue == null);
+                if (rowHasNoId && med.equalsIgnoreCase(medicineName)) {
+                    return i;
+                }
             }
         }
-        return 0;
+        return -1;
+    }
+
+    /** How much of this medicine is already sitting in the current bill (0 if none). */
+    private int getQuantityInBillFor(String medicineName, int medicineId) {
+        int row = findBillRowIndexFor(medicineName, medicineId);
+        return row == -1 ? 0 : Integer.parseInt(model.getValueAt(row, 2).toString());
     }
 
     /** Re-fetches DB stock and re-subtracts what's reserved in the bill for whichever
@@ -502,9 +554,13 @@ public class SalesFrame {
         String medText = medicineLabel.getText().replace("Medicine : ", "");
         if (medText.equals("-")) return;
 
-        SalesDAO.MedicineInfo info = salesDAO.findMedicineByName(medText);
+        SalesDAO.MedicineInfo info = (currentMedicineId != -1)
+                ? salesDAO.findMedicineById(currentMedicineId)
+                : (currentCompany != null)
+                        ? salesDAO.findMedicineByNameAndCompany(medText, currentCompany)
+                        : salesDAO.findMedicineByName(medText);
         if (info != null) {
-            int reserved = getQuantityInBillFor(info.name);
+            int reserved = getQuantityInBillFor(info.name, info.id);
             int available = info.quantity - reserved;
             stockLabel.setText("Stock : " + available);
         }
@@ -515,6 +571,7 @@ public class SalesFrame {
         suggestionList = new JList<>(suggestionListModel);
         suggestionList.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         suggestionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        suggestionList.setCellRenderer(new MedicineSuggestionRenderer());
 
         JScrollPane listScroll = new JScrollPane(suggestionList);
         listScroll.setBorder(BorderFactory.createLineBorder(Color.GRAY));
@@ -549,9 +606,11 @@ public class SalesFrame {
     }
 
     private void commitSelectedSuggestion() {
-        String chosen = suggestionList.getSelectedValue();
+        SalesDAO.MedicineSuggestion chosen = suggestionList.getSelectedValue();
         if (chosen != null) {
-            searchField.setText(chosen);
+            searchField.setText(chosen.medicineName); // triggers the document listener, which clears currentCompany/currentMedicineId
+            currentCompany = chosen.company;           // ...so both are set back afterwards, to the exact row actually picked
+            currentMedicineId = chosen.id;
         }
         suggestionPopup.setVisible(false);
     }
@@ -564,7 +623,7 @@ public class SalesFrame {
             return;
         }
 
-        List<String> suggestions = salesDAO.suggestMedicineNames(text);
+        List<SalesDAO.MedicineSuggestion> suggestions = salesDAO.suggestMedicines(text);
 
         if (suggestions.isEmpty()) {
             suggestionPopup.setVisible(false);
@@ -572,8 +631,8 @@ public class SalesFrame {
         }
 
         suggestionListModel.clear();
-        for (String name : suggestions) {
-            suggestionListModel.addElement(name);
+        for (SalesDAO.MedicineSuggestion suggestion : suggestions) {
+            suggestionListModel.addElement(suggestion);
         }
         suggestionList.setSelectedIndex(0);
 
@@ -584,6 +643,28 @@ public class SalesFrame {
             suggestionPopup.setSize(searchField.getWidth(), height);
             suggestionPopup.setVisible(true);
             suggestionPopup.toFront();
+        }
+    }
+
+    /** Shows each suggestion as "Medicine Name | Company Name | Batch No." so medicines
+     *  that share a name and company but come from different batches can be told apart
+     *  before picking one. */
+    private static class MedicineSuggestionRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                        boolean isSelected, boolean cellHasFocus) {
+            String text;
+            if (value instanceof SalesDAO.MedicineSuggestion) {
+                SalesDAO.MedicineSuggestion suggestion = (SalesDAO.MedicineSuggestion) value;
+                String company = (suggestion.company == null || suggestion.company.isEmpty())
+                        ? "Unknown Company" : suggestion.company;
+                String batchNo = (suggestion.batchNo == null || suggestion.batchNo.isEmpty())
+                        ? "N/A" : suggestion.batchNo;
+                text = suggestion.medicineName + " | " + company + " | " + batchNo;
+            } else {
+                text = String.valueOf(value);
+            }
+            return super.getListCellRendererComponent(list, text, index, isSelected, cellHasFocus);
         }
     }
 

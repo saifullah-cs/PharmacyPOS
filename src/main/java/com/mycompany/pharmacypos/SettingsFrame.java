@@ -46,6 +46,10 @@ public class SettingsFrame {
                 "Add, edit, or remove tests and their default prices.",
                 () -> new TestManagementFrame().show());
 
+        addOption(listPanel, "Distributor Management",
+                "Add, edit, or remove distributors and their contact notes.",
+                () -> new DistributorManagementFrame().show());
+
         JScrollPane scrollPane = new JScrollPane(listPanel);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);

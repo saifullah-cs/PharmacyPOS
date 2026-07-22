@@ -18,6 +18,7 @@ public class HomeFrame {
 
     // ================= Dashboard Cards =================
     private JLabel revenueValue, invoicesValue, medicineFeeValue, doctorFeeValue, testFeeValue;
+    private JLabel versionLabel;
 
     // ================= Alerts =================
     private DefaultListModel<String> lowStockListModel;
@@ -93,6 +94,9 @@ public class HomeFrame {
         int h = frame.getContentPane().getHeight();
         sidebar.setBounds(0, 0, 250, h);
         contentPanel.setBounds(250, 0, Math.max(0, w - 250), h);
+        if (versionLabel != null) {
+            versionLabel.setBounds(20, Math.max(620, h - 30), 210, 18);
+        }
         frame.revalidate();
         frame.repaint();
     }
@@ -132,6 +136,13 @@ public class HomeFrame {
         reportsBtn = createMenuButton("Reports", 360);
         settingsBtn = createMenuButton("Settings", 410);
         logoutBtn = createMenuButton("Logout", 510);
+
+        versionLabel = new JLabel("Version 1.0");
+        versionLabel.setForeground(new Color(150, 165, 175));
+        versionLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        versionLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        versionLabel.setBounds(20, 670, 210, 18);
+        sidebar.add(versionLabel);
 
         sidebar.add(medicineBtn);
         sidebar.add(lowStockBtn);
@@ -536,7 +547,9 @@ public class HomeFrame {
                 sale.time != null ? timeFormat.format(sale.time) : ""
             });
         }
+        
     }
+    
 
     public void refreshDashboard() {
         loadDashboardStats();
